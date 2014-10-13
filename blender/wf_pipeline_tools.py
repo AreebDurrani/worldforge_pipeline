@@ -13,7 +13,7 @@ bl_info = {
 	'wiki_url': ''
 	}
 
-import bpy, os, shutil
+import bpy, os, shutil, subprocess, tempfile
 from bpy.types import Operator
 # from bpy.props import FloatVectorProperty
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
@@ -168,6 +168,120 @@ class OgreMaterialManager:
 					print( asset_name )
 					print( image_name )
 					print( image_names_list )
+					
+					
+class Exporter:
+	def __init__( self, operator ):
+		self.DEBUG = False
+		self.operator = operator
+		#Store all temporary data in a temporary directory
+		self.temp_directory = tempfile.mkdtemp()
+		tokens = bpy.data.filepath.split(os.sep)
+		#The name of the asset, without any extensions. I.e. "deer.blend" becomes "deer"
+		self.asset_name = (tokens[-1].split('.')[0])
+		
+		intersect = -1 
+		if 'source' in tokens:
+			intersect = tokens.index('source')
+		destTokens = tokens[0:intersect]
+		destTokens.append('model')
+		#The path to the destination directory, where the mesh and skeleton should be placed
+		self.dest_path = (os.sep).join(destTokens)
+		
+		self._locate_ogre_tools()
+		
+		
+	def __enter__(self):
+		return self
+	
+	def __exit__(self, type, value, traceback):
+		#Clean up the temporary directory
+		if self.temp_directory:
+			print(self.temp_directory)
+			#shutil.rmtree(self.temp_directory)
+			
+	def _locate_ogre_tools(self):
+		
+		#First check if there's a command on the path
+		self.converter_path = shutil.which("OgreXMLConverter")
+		self.meshmagick_path = shutil.which("meshmagick")
+
+		#On Windows we can provide the tools ourselves, but on Linux they have to be provided by the system (issues with shared libraries and all)
+		#We'll let the provided tools override the ones installed system wide, just to avoid issues. We could expand this with the ability for the user to specify the path.
+		if os.name == 'nt':
+			_id = None
+			tkn = os.path.abspath( os.path.dirname(bpy.data.filepath) )
+			if 'assets' in tkn:
+				_id = tkn.index('assets')
+				self.converter_path = os.path.join(tkn[0:_id], 'resources','asset_manager','bin','nt','OgreCommandLineTools_1.7.2','OgreXMLConverter.exe' )
+			
+	
+	
+	def _convert_xml_to_mesh(self, ogre_xml_path):
+	
+		if not self.converter_path:
+			self.operator.report({'ERROR'}, 'Could not find any OgreXMLConverter command.')
+			return
+			
+		dest_mesh_path = os.path.join(self.dest_path, self.asset_name + ".mesh")
+		
+		subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
+		self.operator.report({'INFO'}, "Wrote mesh file " + dest_mesh_path)
+		return dest_mesh_path
+				
+	def export_to_xml(self, animation = False):
+		'''Uses the OGRE exporter to create a mes.xml file.
+		Returns the path to the exported xml file.'''
+		ogre_xml_path = os.path.join(self.temp_directory, self.asset_name + ".mesh.xml")
+		
+		bpy.ops.ogre.export(
+			EX_COPY_SHADER_PROGRAMS     =False, 
+			EX_SWAP_AXIS                ='xz-y', 
+			EX_SEP_MATS                 =False, 
+			EX_ONLY_DEFORMABLE_BONES    =False, 
+			EX_ONLY_ANIMATED_BONES      =False, 
+			EX_SCENE                    =False, 
+			EX_SELONLY                  =True, 
+			EX_FORCE_CAMERA             =False, 
+			EX_FORCE_LAMPS              =False, 
+			EX_MESH                     =True, 
+			EX_MESH_OVERWRITE           =True, 
+			EX_ARM_ANIM                 =animation, 
+			EX_SHAPE_ANIM               =animation, 
+			EX_INDEPENDENT_ANIM         =animation, 
+			EX_TRIM_BONE_WEIGHTS        =0.01, 
+			EX_ARRAY                    =True, 
+			EX_MATERIALS                =False, 
+			EX_FORCE_IMAGE_FORMAT       ='NONE', 
+			EX_DDS_MIPS                 =1, 
+			EX_lodLevels                =0, 
+			EX_lodDistance              =300, 
+			EX_lodPercent               =40, 
+			EX_nuextremityPoints        =0, 
+			EX_generateEdgeLists        =False, 
+			EX_generateTangents         =True, 
+			EX_tangentSemantic          ='uvw', 
+			EX_tangentUseParity         =4, 
+			EX_tangentSplitMirrored     =False, 
+			EX_tangentSplitRotated      =False, 
+			EX_reorganiseBuffers        =False, 
+			EX_optimiseAnimations       =False, 
+			filepath=ogre_xml_path)		
+		
+		return ogre_xml_path	
+
+		
+		
+	def export_to_mesh(self, animation = False):
+		'''Exports the asset to a .mesh file'''
+		xml_path = self.export_to_xml(animation)
+		mesh_path = self._convert_xml_to_mesh(xml_path)
+		#see if we have meshmagick available and if so call it
+		if mesh_path and self.meshmagick_path:
+			subprocess.call([self.meshmagick_path, 'optimise', mesh_path])
+			self.operator.report({'INFO'}, "Optimised mesh file")
+
+
 
 def get_directory_intersection( intersection_string, directory = None ):
 	if directory ==  None:
@@ -208,14 +322,29 @@ def get_ogre_converter_path():
 			return os.path.join(tkn[0:_id], 'resources','asset_manager','bin','nt','OgreCommandLineTools_1.7.2','OgreXMLConverter.exe' )
 
 		if os.name == 'posix':
-			return os.path.join(tkn[0:_id], 'resources','asset_manager','bin','posix','OgreCommandLineTools','OgreXMLConverter' )
+			#First check if there's a command on the path
+			which_result = shutil.which("OgreXMLConverter")
+			if which_result is None:
+				#This unfortunately won't work in most instances since the shared libs aren't compatible with most Linux distros
+				return os.path.join(tkn[0:_id], 'resources','asset_manager','bin','posix','OgreCommandLineTools','OgreXMLConverter' )
+			return which_result
 		
 	return False
-def convert_ogre_xml(path):
 
-	command = get_ogre_converter_path() + ' '
-	print (command + path)
-	os.system(command + path)
+def get_meshmagick_path():
+	return shutil.which("meshmagick")
+
+def convert_ogre_xml(operator, path):
+
+	command = get_ogre_converter_path()
+	
+	if command == False:
+		operator.report({'ERROR'}, 'Could not find any OgreXMLConverter command.')
+		return
+		
+	print ([command, path])
+	
+	subprocess.call([command, path])
 	# os.system('OgreXmlConverter.exe -t -q ' + path)
 
 def get_tmp_dir (root_path):
@@ -259,7 +388,7 @@ def get_wf_export_path( animated = False ):
 	ogre_xml_path = os.path.join(root_path, xmlName)
 	return  root_path, ogre_xml_path  
 
-def convert_ogre_xmls_to_mesh(root_dir):
+def convert_ogre_xmls_to_mesh(operator, root_dir):
 	'''converts all xml files in the directory'''
 	ll = os.listdir(root_dir)
 	# print (ll)
@@ -273,7 +402,7 @@ def convert_ogre_xmls_to_mesh(root_dir):
 			if os.path.isfile(mesh_file):
 				os.remove(mesh_file)
 
-			convert_ogre_xml(xml_file)
+			convert_ogre_xml(operator, xml_file)
 			os.remove(xml_file)
 	
 def wf_export_ogre(ogre_xml_path, animation = False):
@@ -338,7 +467,8 @@ def xml_skeleton_shuffle (tmp_dir, skeleton_name):
 
 def clean_tmp_dir( tmp_dir,root_path ):
 	'''Clean up the temp directory'''
-	#print root_path
+	print(tmp_dir)
+	print(root_path)
 	for fl in os.listdir(tmp_dir):
 		src = os.path.join(tmp_dir, fl)
 		dst = os.path.join(root_path, fl)
@@ -349,16 +479,6 @@ def clean_tmp_dir( tmp_dir,root_path ):
 		else:
 			os.remove(src)
 	shutil.rmtree(tmp_dir)
-
-def export_ogre_static (self, context, convert = True):
-	'''Main exporter for static content'''
-	root_path, ogre_xml_path  = get_wf_export_path()
-	print (root_path)
-	print (ogre_xml_path)
-
-	wf_export_ogre(ogre_xml_path)
-	if convert == True:
-		convert_ogre_xmls_to_mesh(root_path)
 
 def export_ogre_animated (self, context, convert = True):
 	'''Main exporter for animated content'''
@@ -401,7 +521,8 @@ class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
 
 
 	def execute(self, context):
-		export_ogre_static(self, context, True)
+		with Exporter(self) as exporter:
+			exporter.export_to_mesh()
 		return {'FINISHED'}
 
 class OBJECT_OT_wf_fix_materials(Operator, AddObjectHelper):
