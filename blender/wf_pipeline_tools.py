@@ -13,7 +13,7 @@ bl_info = {
 	'wiki_url': ''
 	}
 
-import bpy, os, shutil, subprocess, tempfile
+import bpy, os, shutil, subprocess, tempfile, fnmatch
 from bpy.types import Operator
 # from bpy.props import FloatVectorProperty
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
@@ -179,6 +179,9 @@ class Exporter:
 		tokens = bpy.data.filepath.split(os.sep)
 		#The name of the asset, without any extensions. I.e. "deer.blend" becomes "deer"
 		self.asset_name = (tokens[-1].split('.')[0])
+		#self.skeleton_name = bpy.data.scenes['Scene'].Rig
+		
+		self.skeleton_name = self.asset_name
 		
 		intersect = -1 
 		if 'source' in tokens:
@@ -189,6 +192,11 @@ class Exporter:
 		self.dest_path = (os.sep).join(destTokens)
 		
 		self._locate_ogre_tools()
+		
+		if 'assets' in tokens:
+			_id = tokens.index('assets')
+			self.assets_relative_path_tokens = tokens[_id :-1]
+			self.assets_root = (os.sep).join(tokens[0:_id + 1])
 		
 		
 	def __enter__(self):
@@ -217,13 +225,13 @@ class Exporter:
 			
 	
 	
-	def _convert_xml_to_mesh(self, ogre_xml_path):
+	def _convert_xml_to_mesh(self, ogre_xml_path, final_asset_name):
 	
 		if not self.converter_path:
 			self.operator.report({'ERROR'}, 'Could not find any OgreXMLConverter command.')
 			return
 			
-		dest_mesh_path = os.path.join(self.dest_path, self.asset_name + ".mesh")
+		dest_mesh_path = os.path.join(self.dest_path, final_asset_name)
 		
 		subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
 		self.operator.report({'INFO'}, "Wrote mesh file " + dest_mesh_path)
@@ -233,6 +241,7 @@ class Exporter:
 		'''Uses the OGRE exporter to create a mes.xml file.
 		Returns the path to the exported xml file.'''
 		ogre_xml_path = os.path.join(self.temp_directory, self.asset_name + ".mesh.xml")
+		skeleton_xml_path = os.path.join(self.temp_directory, self.asset_name + ".skeleton.xml")
 		
 		bpy.ops.ogre.export(
 			EX_COPY_SHADER_PROGRAMS     =False, 
@@ -268,18 +277,109 @@ class Exporter:
 			EX_optimiseAnimations       =False, 
 			filepath=ogre_xml_path)		
 		
-		return ogre_xml_path	
+		return ogre_xml_path, skeleton_xml_path	
+	
+	def adjust_ogre_xml_skeleton(self, ogre_xml_file, skeleton_name = None ):
+		'''adjusts the name of the skeleton name of a given ogre_xml_file'''
+		with open(ogre_xml_file, 'r') as f:
+			lines = f.readlines()
+			f.close()
+
+		with open(ogre_xml_file, 'w') as f:
+			for line in lines:
+				if (line.strip())[0:5] == '<skel':
+					tks = line.split('=')
+					fixed_skeleton_line =  ('%s=\'./%s\'/>\n' % (tks[0], skeleton_name))
+					f.write(fixed_skeleton_line)
+				else:
+					f.write(line)
+			f.close()
+			
+			
+	def find_file_recursively(self, relative_path_tokens, file_name):
+		'''Searches for a file recursively upwards, starting from a directory and walking upwards in the hierarchy until the "assets" directory is reached.'''
+		print(self.assets_root)
+		print(relative_path_tokens)
+		path = os.path.join(self.assets_root, (os.sep).join(relative_path_tokens))
+		
+		for root, _, filenames in os.walk(path):
+			for filename in fnmatch.filter(filenames, file_name):
+				return os.path.join(root, filename)
+		del relative_path_tokens[-1]
+		return self.find_file_recursively(relative_path_tokens, file_name)
 
 		
 		
 	def export_to_mesh(self, animation = False):
 		'''Exports the asset to a .mesh file'''
-		xml_path = self.export_to_xml(animation)
-		mesh_path = self._convert_xml_to_mesh(xml_path)
+		xml_path, skeleton_xml_path = self.export_to_xml(animation)
+
+		skeleton_path = None
+		
+		if animation:
+			#Check that there are any armatures
+			if len(bpy.data.armatures) > 0:
+				if len(bpy.data.armatures) == 1:
+					armature = bpy.data.armatures
+				else:
+					#if there are multiple. check if anyone is selected
+					selected_armature_name = bpy.data.scenes['Scene'].Rig
+					if selected_armature_name:
+						for an_armature in bpy.data.armatures:
+							if an_armature.name == selected_armature_name:
+								armature = an_armature
+								break
+					if not armature:
+						#none selected; just select the first one
+						armature = bpy.data.armatures[0]
+
+			#check if it's a linked armature
+			if armature.library:
+				#The file name of the exported armature/skeleton
+				armature_file_name = armature.name + ".skeleton"
+				#we need to remove any '/' characters at the start of the path
+				armature_file_path = armature.library.filepath.lstrip('/')
+				#if it's a relative path we need to resolve the path
+				if armature_file_path.startswith("."):
+					rel_path = os.path.dirname(bpy.data.filepath) + os.sep + os.path.dirname(armature_file_path)
+					armature_path = os.path.abspath(rel_path)
+				else:
+					armature_path = os.path.abspath(os.path.dirname(armature_file_path))
+					
+				#Get a relative path from the root of the assets library
+				armature_relative_path = os.path.relpath(armature_path, self.assets_root)
+				
+				#We now know where the armature .blend file should be, but we can't know exactly where the corresponding .skeleton file should be
+				#We need to figure this out by searching, first in the most probably location and then walking upwards until we reach the "assets" directory.
+				#If we haven't found any skeleton file by then we'll just assume that it should be alongside the .blend file
+				armature_found_path = self.find_file_recursively(armature_relative_path.split(os.sep), armature_file_name)
+				if armature_found_path:
+					referenced_skeleton_path = os.path.relpath(armature_found_path, self.assets_root)
+				else:
+					referenced_skeleton_path = armature_relative_path + "/" + armature_file_name
+									
+				#since it's a linked armature we won't export the skeleton
+			else:
+				#if it's not a linked armature we should export it
+				if skeleton_xml_path:
+					referenced_skeleton_path = armature_file_name
+					skeleton_path = self._convert_xml_to_mesh(skeleton_xml_path, armature_file_name)
+
+
+			#we need to adjust the relative path of the skeleton in the mesh file
+			self.adjust_ogre_xml_skeleton(xml_path, referenced_skeleton_path)
+			self.operator.report({'INFO'}, "Skeleton path set to " + referenced_skeleton_path)
+			
+		
+		mesh_path = self._convert_xml_to_mesh(xml_path, self.asset_name + ".mesh")
 		#see if we have meshmagick available and if so call it
 		if mesh_path and self.meshmagick_path:
 			subprocess.call([self.meshmagick_path, 'optimise', mesh_path])
 			self.operator.report({'INFO'}, "Optimised mesh file")
+			if animation and skeleton_path:
+				subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
+				self.operator.report({'INFO'}, "Optimised skeleton file")
+				
 
 
 
@@ -509,7 +609,8 @@ class OBJECT_OT_wfoe_animated(Operator, AddObjectHelper):
 
 
 	def execute(self, context):
-		export_ogre_animated(self, context, True)
+		with Exporter(self) as exporter:
+			exporter.export_to_mesh(True)
 		return {'FINISHED'}
 
 class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
@@ -522,7 +623,7 @@ class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
 
 	def execute(self, context):
 		with Exporter(self) as exporter:
-			exporter.export_to_mesh()
+			exporter.export_to_mesh(False)
 		return {'FINISHED'}
 
 class OBJECT_OT_wf_fix_materials(Operator, AddObjectHelper):
