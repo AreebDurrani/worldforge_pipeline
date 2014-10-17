@@ -140,15 +140,24 @@ def convert_xml_to_mesh(ogre_mesh_files):
 def fix_xml_material_names(ogre_mesh_files):
 
 	convert_mesh_to_xml(ogre_mesh_files)
-
+	mat_pairs = add_wf_mat_name_attr()
+	# print mat_pairs
 	for om in ogre_mesh_files:
 		if os.path.exists(om + '.xml'):
 			xmldoc = minidom.parse(om +'.xml')
 			submeshes = xmldoc.getElementsByTagName("submesh")
 			for node in submeshes:
 				old_mat = node.attributes["material"].value
-				new_mat = old_mat.replace('_','/')
-				node.attributes["material"].value = new_mat
+				# print old_mat
+				for mat in mat_pairs:
+					# print mat
+					if mat[0] == old_mat:
+						# print mat[0]
+						# print mat[1]
+						new_mat = mat[1]
+
+						# new_mat = old_mat.replace('_','/')
+						node.attributes["material"].value = new_mat
 			
 			#write back to the xml file
 			updated_xml = xmldoc.toxml()
@@ -160,21 +169,32 @@ def fix_xml_material_names(ogre_mesh_files):
 	convert_xml_to_mesh(ogre_mesh_files)
 
 
-def rename_mats(*args):
+def add_wf_mat_name_attr(*args):
+	r'''addes a material name attribute of WFMaterialName based on diffuse file connection
+	'''
+	mat_pairs=[]
 	mats = cmds.ls(mat=True)
 	for mat in mats:
 		_file = cmds.listConnections('%s.color' % mat)
 		if _file :
+				tex_path =  cmds.getAttr(_file[0] + '.fileTextureName')
+				idx = tex_path.lower().find('assets') 
+				if idx != -1:
+					new_name = '/' + tex_path[idx+7:-6]
+					attr_list = cmds.listAttr(mat)
+					if not ('WFMaterialName' in attr_list):
+						print 'Attribute not in list, making attribute' 
+						cmds.addAttr(mat, dt="string", ln="WFMaterialName")
+						
+					cmds.setAttr(mat + '.WFMaterialName', new_name, type="string" )
+					# print ([mat, new_name])
+					mat_pairs.append([mat, new_name])
+		
 
-			tex_path =  cmds.getAttr(_file[0] + '.fileTextureName')
-			idx = tex_path.lower().find('assets') 
-			if idx != -1:
-				new_name = '_' + tex_path[idx+7:-6]
-				cmds.rename(mat, new_name)
-
-			else:
-				print 'Material: \n  %s' % mat
-				print 'String \"assets\" does not exist in the path\n  %s' % tex_path
+				else:
+					print 'Material: \n  %s' % mat
+					print 'String \"assets\" does not exist in the path\n  %s' % tex_path
+	return mat_pairs
 
 def repath_scene_textures(*args):			
 	root_dir = get_root_project()
@@ -263,9 +283,9 @@ def rename_objects(*args):
 	else:
 		print'Nothing to do'
 		return False
-       
+
 def rename_UI():
-if cmds.window('wf_node_renamer', exists=True):
+	if cmds.window('wf_node_renamer', exists=True):
 		cmds.deleteUI('wf_node_renamer')
 	
 	# create window	
@@ -301,7 +321,7 @@ def UI():
 	#cmds.window('wf_exporter45', title='Worldforge Exporter', w=200, h=200, mnb= False, mxb=False, sizeable=True)
 	cmds.frameLayout(label="Utilities", collapsable=True, collapse=False) 
 	cmds.rowLayout(numberOfColumns=2, columnWidth2=(102, 105), adjustableColumn1=True, columnAttach=[(1, 'both', 0), (2, 'both', 0), (3, 'both', 0)] )	
-	cmds.button(label="Rename Materials", command=rename_mats)
+	cmds.button(label="Add Mat Attrs", command=add_wf_mat_name_attr)
 	cmds.button(label='Re-Path Textures', command=repath_scene_textures)
 	cmds.setParent( '..' )
 	cmds.separator(h=5)
