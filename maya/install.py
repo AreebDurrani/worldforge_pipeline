@@ -29,7 +29,16 @@ MODULE_NAME = 'wf_tools'
 VERSION = '0.0.1'
 MODULE_PATH = '.'
 ABSOLUTE_PATH = os.getcwd()
-
+# PYTHON_SOURCE_PATH = MODULE_PATH+'/src'
+# EXCLUDE_DIRS = \
+# 	[
+# 		'.git',
+# 		'.svn',
+# 	]
+# EXCLUDE_FILES = ['pyc','pkl','~']
+# MAYA_USERSETUP_MEL_FILE = 'python("import dmptools.setup.init");// automatically added by the dmptools installation'
+  
+# check if we run the install from the correct location
 LD = os.listdir(ABSOLUTE_PATH)
 
 if 'install.py' in LD and 'wf_pipeline.py' in LD and 'icons' in LD and 'shelf' in LD:
@@ -78,7 +87,6 @@ def install_maya():
 	#script tools
 	src_tool = p_join(ABSOLUTE_PATH,'wf_pipeline.py')
 	dst_tool = p_join(dst_prefs_script, 'wf_pipeline.py' )
-	print 'installing script wf_pipeline.py'
 	if p_exist(dst_tool):
 		os.remove(dst_tool)
 	copy2(src_tool, dst_tool)
@@ -115,9 +123,5 @@ def install_maya():
 			f.writelines(data)
 			f.close()
 
-def main():
-	if os.path.exists(MAYA_PATH):
-		install_maya()
-
-if __name__ == "__main__":
-	main()
+if os.path.exists(MAYA_PATH):
+	install_maya()

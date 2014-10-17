@@ -165,13 +165,14 @@ def rename_mats(*args):
 	for mat in mats:
 		_file = cmds.listConnections('%s.color' % mat)
 		if _file :
+
 			tex_path =  cmds.getAttr(_file[0] + '.fileTextureName')
-			try:
-				idx =  tex_path.index('assets')
+			idx = tex_path.lower().find('assets') 
+			if idx != -1:
 				new_name = '_' + tex_path[idx+7:-6]
 				cmds.rename(mat, new_name)
 
-			except:
+			else:
 				print 'Material: \n  %s' % mat
 				print 'String \"assets\" does not exist in the path\n  %s' % tex_path
 
@@ -236,7 +237,7 @@ def rename_objects(*args):
 	alphabet = ['a','b','c','d','e','f','g','h','i','j','k','l',]
 	if len(objs) == 1:
 		ob = objs[0]
-		shape = cmds.listRelatives(ob)[0]
+		shape = cmds.listRelatives(ob, shapes=True)[0]
 
 		t_name = txt + '_t'
 		m_name = txt
@@ -250,7 +251,7 @@ def rename_objects(*args):
 		count = 0
 		for ob in objs:
 
-			shape = cmds.listRelatives(ob)[0]
+			shape = cmds.listRelatives(ob, shapes=True)[0]
 
 			t_name = txt + '_t_' + alphabet[count]
 			m_name = txt + '_' + alphabet[count]
@@ -263,6 +264,23 @@ def rename_objects(*args):
 		print'Nothing to do'
 		return False
        
+def rename_UI():
+if cmds.window('wf_node_renamer', exists=True):
+		cmds.deleteUI('wf_node_renamer')
+	
+	# create window	
+	window = cmds.window('wf_node_renamer', title='Worldforge Renamer', w=200, h=500, mnb= False, mxb=False, sizeable=False)
+	
+
+	cmds.columnLayout( columnAttach=('both', 5), rowSpacing=10, columnWidth=200 )
+	# base_name = cmds.textField('txt_input',w=199)
+	cmds.textField('txt_input', w=192)
+	# cmds.textField( base_name, edit=True, enterCommand=('cmds.setFocus(\"' + base_name + '\")') )
+
+	cmds.button( label='Re-Name Selected',w=192, command=rename_objects)
+
+	cmds.showWindow()
+
 def UI():
 	# does window exists
 	# pass
