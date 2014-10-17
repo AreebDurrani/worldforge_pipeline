@@ -1,0 +1,33 @@
+global proc shelf_WF () {
+    global string $gBuffStr;
+    global string $gBuffStr0;
+    global string $gBuffStr1;
+
+
+    shelfButton
+        -enableCommandRepeat 1
+        -enable 1
+        -width 35
+        -height 35
+        -manage 1
+        -visible 1
+        -preventOverride 0
+        -annotation "import wf_pipeline\nreload(wf_pipeline)\nwf_pipeline.UI()\n" 
+        -enableBackground 0
+        -align "center" 
+        -label "import wf_pipeline\nreload(wf_pipeline)\nwf_pipeline.UI()\n" 
+        -labelOffset 0
+        -font "plainLabelFont" 
+        -overlayLabelColor 0.8 0.8 0.8 
+        -overlayLabelBackColor 0 0 0 0.25 
+        -image "pythonFamily.png" 
+        -image1 "pythonFamily.png" 
+        -style "iconOnly" 
+        -marginWidth 1
+        -marginHeight 1
+        -command "import wf_pipeline\nreload(wf_pipeline)\nwf_pipeline.UI()\n" 
+        -sourceType "python" 
+        -commandRepeatable 1
+    ;
+
+} 
