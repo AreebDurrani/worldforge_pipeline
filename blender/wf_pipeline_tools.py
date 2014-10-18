@@ -60,7 +60,7 @@ class OgreMaterialManager:
 		self.DEBUG = False
 		
 	def get_base_name( self, path ):
-		bad_names_l = ['//..','texture','source','model',]
+		bad_names_l = ['//..']
 		tkns = path.split(os.sep)[1:-1]
 		seps = []
 		for i in range( len(tkns)):
