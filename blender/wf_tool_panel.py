@@ -101,6 +101,8 @@ class PANEL_OT_wf_ogre_export(bpy.types.Panel):
         
         col.prop_search(scene, "Rig", bpy.data, "armatures")
         row = layout.row()
+        row.prop(scene, "EX_wf_export_optimize")
+        row = layout.row()
         row.operator("mesh.wf_export_ogre_animated", icon='BONE_DATA')
 
 
@@ -109,6 +111,7 @@ def register():
     bpy.utils.register_class(PANEL_OT_wf_mat_panel)
     bpy.utils.register_class(PANEL_OT_wf_rigging_panel)
     bpy.utils.register_class(PANEL_OT_wf_tools)
+    bpy.types.Scene.EX_wf_export_optimize = bpy.props.BoolProperty(default=True, name="Optimize mesh",description="If enabled, MeshMagick (if available) will be used to optimize the mesh.")
 
 def unregister():
     bpy.utils.unregister_class(PANEL_OT_wf_ogre_export)

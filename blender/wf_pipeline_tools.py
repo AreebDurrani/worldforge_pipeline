@@ -171,9 +171,10 @@ class OgreMaterialManager:
 					
 					
 class Exporter:
-	def __init__( self, operator ):
+	def __init__( self, operator, context):
 		self.DEBUG = False
 		self.operator = operator
+		self.context = context
 		#Store all temporary data in a temporary directory
 		self.temp_directory = tempfile.mkdtemp()
 		tokens = bpy.data.filepath.split(os.sep)
@@ -328,7 +329,7 @@ class Exporter:
 					armature = bpy.data.armatures[0]
 				else:
 					#if there are multiple. check if anyone is selected
-					selected_armature_name = bpy.data.scenes['Scene'].Rig
+					selected_armature_name = self.context.scene.Rig
 					if selected_armature_name:
 						for an_armature in bpy.data.armatures:
 							if an_armature.name == selected_armature_name:
@@ -380,11 +381,13 @@ class Exporter:
 		mesh_path = self._convert_xml_to_mesh(xml_path, self.asset_name + ".mesh")
 		#see if we have meshmagick available and if so call it
 		if mesh_path and self.meshmagick_path:
-			subprocess.call([self.meshmagick_path, 'optimise', mesh_path])
-			self.operator.report({'INFO'}, "Optimised mesh file")
-			if animation and skeleton_path:
-				subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
-				self.operator.report({'INFO'}, "Optimised skeleton file")
+			#Check if mesh optimization is turned on
+			if self.context.scene.EX_wf_export_optimize:
+				subprocess.call([self.meshmagick_path, 'optimise', mesh_path])
+				self.operator.report({'INFO'}, "Optimised mesh file")
+				if animation and skeleton_path:
+					subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
+					self.operator.report({'INFO'}, "Optimised skeleton file")
 				
 # ----------------------------------------------------------------------------
 # -------------------------- COMMAND EXEC ------------------------------------
@@ -398,7 +401,7 @@ class OBJECT_OT_wfoe_animated(Operator, AddObjectHelper):
 
 
 	def execute(self, context):
-		with Exporter(self) as exporter:
+		with Exporter(self, context) as exporter:
 			exporter.export_to_mesh(True)
 		return {'FINISHED'}
 
@@ -411,7 +414,7 @@ class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
 
 
 	def execute(self, context):
-		with Exporter(self) as exporter:
+		with Exporter(self, context) as exporter:
 			exporter.export_to_mesh(False)
 		return {'FINISHED'}
 
