@@ -312,7 +312,12 @@ class Exporter:
 		
 	def export_to_mesh(self, animation = False):
 		'''Exports the asset to a .mesh file'''
-		xml_path, skeleton_xml_path = self.export_to_xml(animation)
+
+		try:		
+			xml_path, skeleton_xml_path = self.export_to_xml(animation)
+		except Exception as e:
+			self.operator.report({'ERROR'}, "Error when exporting mesh. Make sure you have the Ogre exporter installed. Message: " + str(e))
+			return
 
 		skeleton_path = None
 		
