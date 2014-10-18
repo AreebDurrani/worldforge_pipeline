@@ -325,7 +325,7 @@ class Exporter:
 			#Check that there are any armatures
 			if len(bpy.data.armatures) > 0:
 				if len(bpy.data.armatures) == 1:
-					armature = bpy.data.armatures
+					armature = bpy.data.armatures[0]
 				else:
 					#if there are multiple. check if anyone is selected
 					selected_armature_name = bpy.data.scenes['Scene'].Rig
@@ -338,10 +338,11 @@ class Exporter:
 						#none selected; just select the first one
 						armature = bpy.data.armatures[0]
 
+			#The file name of the exported armature/skeleton
+			armature_file_name = armature.name + ".skeleton"
+
 			#check if it's a linked armature
 			if armature.library:
-				#The file name of the exported armature/skeleton
-				armature_file_name = armature.name + ".skeleton"
 				#we need to remove any '/' characters at the start of the path
 				armature_file_path = armature.library.filepath.lstrip('/')
 				#if it's a relative path we need to resolve the path
