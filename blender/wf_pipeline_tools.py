@@ -234,7 +234,10 @@ class Exporter:
 			
 		dest_mesh_path = os.path.join(self.dest_path, final_asset_name)
 		
-		subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
+		if self.context.scene.EX_wf_export_generate_tangents:
+			subprocess.call([self.converter_path, "-t", ogre_xml_path, dest_mesh_path])
+		else:
+			subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
 		self.operator.report({'INFO'}, "Wrote mesh file " + dest_mesh_path)
 		return dest_mesh_path
 				
