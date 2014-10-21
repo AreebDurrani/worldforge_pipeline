@@ -148,12 +148,12 @@ def fix_xml_material_names(ogre_mesh_files):
 			submeshes = xmldoc.getElementsByTagName("submesh")
 			for node in submeshes:
 				old_mat = node.attributes["material"].value
-				# print old_mat
+				print old_mat
 				for mat in mat_pairs:
-					# print mat
+					print mat
 					if mat[0] == old_mat:
-						# print mat[0]
-						# print mat[1]
+						print ('	Maya Material       %s'% mat[0])
+						print ('	Worldforge Material %s'% mat[1])
 						new_mat = mat[1]
 
 						# new_mat = old_mat.replace('_','/')
@@ -168,7 +168,22 @@ def fix_xml_material_names(ogre_mesh_files):
 
 	convert_xml_to_mesh(ogre_mesh_files)
 
-
+def rename_materials(*args):
+	r'''renames material based on texture name'''
+	mats = cmds.ls(mat=True)
+	for mat in mats:
+		_file = cmds.listConnections('%s.color' % mat)
+		if _file :
+				tex_path =  cmds.getAttr(_file[0] + '.fileTextureName')
+				idx = tex_path.lower().find('assets') 
+				new_name = ''
+				if idx != -1:
+					tkns = os.path.abspath(tex_path).split(os.sep)
+					if tkns[-3] == 'texture':
+						new_name = tkns[-2]
+					else:
+						new_name = tkns[-3]
+					cmds.rename(mat, new_name)
 def add_wf_mat_name_attr(*args):
 	r'''addes a material name attribute of WFMaterialName based on diffuse file connection
 	'''
@@ -237,6 +252,7 @@ def export_static_ogre(*args):
 			mm.eval(command)
 		
 		cmds.select(objects)
+		print 'fixing materials'
 		fix_xml_material_names(ogre_mesh_files)
 
 def fix_string(string):
@@ -293,18 +309,15 @@ def rename_UI():
 	
 
 	cmds.columnLayout( columnAttach=('both', 5), rowSpacing=10, columnWidth=200 )
-	# base_name = cmds.textField('txt_input',w=199)
 	cmds.textField('txt_input', w=192)
-	# cmds.textField( base_name, edit=True, enterCommand=('cmds.setFocus(\"' + base_name + '\")') )
 
 	cmds.button( label='Re-Name Selected',w=192, command=rename_objects)
 
 	cmds.showWindow()
 
 def UI():
-	# does window exists
-	# pass
-	global base_name
+
+	# close window if exists
 	if cmds.window('wf_exporter', exists=True):
 		cmds.deleteUI('wf_exporter')
 	
@@ -313,7 +326,7 @@ def UI():
 	
 	main_layout = cmds.columnLayout(w=100, h=300)
 
-	#image path
+	#header image path
 	img_path = cmds.internalVar(upd=True)+ 'icons/wf_header.jpg'
 	cmds.image(w=215, h=52, image = img_path)
 
@@ -325,18 +338,20 @@ def UI():
 	cmds.button(label='Re-Path Textures', command=repath_scene_textures)
 	cmds.setParent( '..' )
 	cmds.separator(h=5)
-	cmds.columnLayout( columnAttach=('both', 5), rowSpacing=10, columnWidth=200 )
-	# base_name = cmds.textField('txt_input',w=199)
-	cmds.textField('txt_input', w=199)
-	# cmds.textField( base_name, edit=True, enterCommand=('cmds.setFocus(\"' + base_name + '\")') )
 
+	# rename materials section
+	cmds.columnLayout( columnAttach=('both', 5), rowSpacing=10, columnWidth=200 )
+	cmds.button( label='Re-Name Materials',w=199, command=rename_materials)
+	cmds.setParent( '..' )
+
+	# rename objects section
+	cmds.columnLayout( columnAttach=('both', 5), rowSpacing=10, columnWidth=200 )
+	cmds.textField('txt_input', w=199)
 	cmds.button( label='Re-Name Selected',w=199, command=rename_objects)
 	cmds.setParent( '..' )
 
 	
 	cmds.frameLayout(label="Exporter", collapsable=True, collapse=False) 
-	#cmds.rowLayout(numberOfColumns=2, columnWidth2=(80, 75), adjustableColumn=2, columnAlign=(1, 'right'), columnAttach=[(1, 'both', 0), (2, 'both', 0), (3, 'both', 0)] )
-	#cmds.columnLayout(w=200, h=300)
 	cmds.separator(h=5)
 	cmds.columnLayout( columnAttach=('both', 5), rowSpacing=10, adjustableColumn=True  )
 
