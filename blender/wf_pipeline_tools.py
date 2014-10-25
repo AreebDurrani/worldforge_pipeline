@@ -380,17 +380,20 @@ class Exporter:
 			self.adjust_ogre_xml_skeleton(xml_path, referenced_skeleton_path)
 			self.operator.report({'INFO'}, "Skeleton path set to " + referenced_skeleton_path)
 			
-		
-		mesh_path = self._convert_xml_to_mesh(xml_path, self.asset_name + ".mesh")
-		#see if we have meshmagick available and if so call it
-		if mesh_path and self.meshmagick_path:
-			#Check if mesh optimization is turned on
-			if self.context.scene.EX_wf_export_optimize:
-				subprocess.call([self.meshmagick_path, 'optimise', mesh_path])
-				self.operator.report({'INFO'}, "Optimised mesh file")
-				if animation and skeleton_path:
-					subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
-					self.operator.report({'INFO'}, "Optimised skeleton file")
+		for selected_mesh in bpy.context.selected_objects:
+			mesh_name = selected_mesh.name
+			xml_path = os.path.join(self.temp_directory, mesh_name + ".mesh.xml")
+
+			mesh_path = self._convert_xml_to_mesh(xml_path, mesh_name + ".mesh")
+			#see if we have meshmagick available and if so call it
+			if mesh_path and self.meshmagick_path:
+				#Check if mesh optimization is turned on
+				if self.context.scene.EX_wf_export_optimize:
+					subprocess.call([self.meshmagick_path, 'optimise', mesh_path])
+					self.operator.report({'INFO'}, "Optimised mesh file")
+					if animation and skeleton_path:
+						subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
+						self.operator.report({'INFO'}, "Optimised skeleton file")
 				
 # ----------------------------------------------------------------------------
 # -------------------------- COMMAND EXEC ------------------------------------
