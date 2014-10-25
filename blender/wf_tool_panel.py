@@ -113,7 +113,7 @@ def register():
     bpy.utils.register_class(PANEL_OT_wf_mat_panel)
     bpy.utils.register_class(PANEL_OT_wf_rigging_panel)
     bpy.utils.register_class(PANEL_OT_wf_tools)
-    bpy.types.Scene.EX_wf_export_optimize = bpy.props.BoolProperty(default=True, name="Optimize mesh",description="If enabled, MeshMagick (if available) will be used to optimize the mesh.")
+    bpy.types.Scene.EX_wf_export_optimize = bpy.props.BoolProperty(default=False, name="Optimize mesh",description="If enabled, MeshMagick (if available) will be used to optimize the mesh.")
     bpy.types.Scene.EX_wf_export_generate_tangents = bpy.props.BoolProperty(default=True, name="Generate tangents",description="If enabled, tangents will be generated.")
 
 def unregister():
