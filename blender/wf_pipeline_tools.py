@@ -206,8 +206,8 @@ class Exporter:
 	def __exit__(self, type, value, traceback):
 		#Clean up the temporary directory
 		if self.temp_directory:
-			print(self.temp_directory)
-			#shutil.rmtree(self.temp_directory)
+			#print(self.temp_directory)
+			shutil.rmtree(self.temp_directory)
 			
 	def _locate_ogre_tools(self):
 		
@@ -293,7 +293,7 @@ class Exporter:
 			for line in lines:
 				if (line.strip())[0:5] == '<skel':
 					tks = line.split('=')
-					fixed_skeleton_line =  ('%s=\'./%s\'/>\n' % (tks[0], skeleton_name))
+					fixed_skeleton_line =  ('%s=\'%s\'/>\n' % (tks[0], skeleton_name))
 					f.write(fixed_skeleton_line)
 				else:
 					f.write(line)
@@ -302,8 +302,6 @@ class Exporter:
 			
 	def find_file_recursively(self, relative_path_tokens, file_name):
 		'''Searches for a file recursively upwards, starting from a directory and walking upwards in the hierarchy until the "assets" directory is reached.'''
-		print(self.assets_root)
-		print(relative_path_tokens)
 		path = os.path.join(self.assets_root, (os.sep).join(relative_path_tokens))
 		
 		for root, _, filenames in os.walk(path):
@@ -312,7 +310,32 @@ class Exporter:
 		del relative_path_tokens[-1]
 		return self.find_file_recursively(relative_path_tokens, file_name)
 
+
+	def find_library_skeleton_path(self, armature):
+		#The file name of the exported armature/skeleton
+		armature_file_name = armature.name + ".skeleton"
+
+		#we need to remove any '/' characters at the start of the path
+		armature_file_path = armature.library.filepath.lstrip('/')
+		#if it's a relative path we need to resolve the path
+		if armature_file_path.startswith("."):
+			rel_path = os.path.dirname(bpy.data.filepath) + os.sep + os.path.dirname(armature_file_path)
+			armature_path = os.path.abspath(rel_path)
+		else:
+			armature_path = os.path.abspath(os.path.dirname(armature_file_path))
+			
+		#Get a relative path from the root of the assets library
+		armature_relative_path = os.path.relpath(armature_path, self.assets_root)
 		
+		#We now know where the armature .blend file should be, but we can't know exactly where the corresponding .skeleton file should be
+		#We need to figure this out by searching, first in the most probably location and then walking upwards until we reach the "assets" directory.
+		#If we haven't found any skeleton file by then we'll just assume that it should be alongside the .blend file
+		armature_found_path = self.find_file_recursively(armature_relative_path.split(os.sep), armature_file_name)
+		if armature_found_path:
+			return os.path.relpath(armature_found_path, self.assets_root)
+		else:
+			return armature_relative_path + "/" + armature_file_name
+
 		
 	def export_to_mesh(self, animation = False):
 		'''Exports the asset to a .mesh file'''
@@ -324,66 +347,33 @@ class Exporter:
 			return
 
 		skeleton_path = None
-		
-		if animation:
-			#Check that there are any armatures
-			if len(bpy.data.armatures) > 0:
-				if len(bpy.data.armatures) == 1:
-					armature = bpy.data.armatures[0]
-				else:
-					#if there are multiple. check if anyone is selected
-					selected_armature_name = self.context.scene.Rig
-					if selected_armature_name:
-						for an_armature in bpy.data.armatures:
-							if an_armature.name == selected_armature_name:
-								armature = an_armature
-								break
-					if not armature:
-						#none selected; just select the first one
-						armature = bpy.data.armatures[0]
-
-			#The file name of the exported armature/skeleton
-			armature_file_name = armature.name + ".skeleton"
-
-			#check if it's a linked armature
-			if armature.library:
-				#we need to remove any '/' characters at the start of the path
-				armature_file_path = armature.library.filepath.lstrip('/')
-				#if it's a relative path we need to resolve the path
-				if armature_file_path.startswith("."):
-					rel_path = os.path.dirname(bpy.data.filepath) + os.sep + os.path.dirname(armature_file_path)
-					armature_path = os.path.abspath(rel_path)
-				else:
-					armature_path = os.path.abspath(os.path.dirname(armature_file_path))
-					
-				#Get a relative path from the root of the assets library
-				armature_relative_path = os.path.relpath(armature_path, self.assets_root)
-				
-				#We now know where the armature .blend file should be, but we can't know exactly where the corresponding .skeleton file should be
-				#We need to figure this out by searching, first in the most probably location and then walking upwards until we reach the "assets" directory.
-				#If we haven't found any skeleton file by then we'll just assume that it should be alongside the .blend file
-				armature_found_path = self.find_file_recursively(armature_relative_path.split(os.sep), armature_file_name)
-				if armature_found_path:
-					referenced_skeleton_path = os.path.relpath(armature_found_path, self.assets_root)
-				else:
-					referenced_skeleton_path = armature_relative_path + "/" + armature_file_name
-									
-				#since it's a linked armature we won't export the skeleton
-			else:
-				#if it's not a linked armature we should export it
-				if skeleton_xml_path:
-					referenced_skeleton_path = armature_file_name
-					skeleton_path = self._convert_xml_to_mesh(skeleton_xml_path, armature_file_name)
-
-
-			#we need to adjust the relative path of the skeleton in the mesh file
-			self.adjust_ogre_xml_skeleton(xml_path, referenced_skeleton_path)
-			self.operator.report({'INFO'}, "Skeleton path set to " + referenced_skeleton_path)
 			
 		for selected_mesh in bpy.context.selected_objects:
+
 			mesh_name = selected_mesh.name
 			xml_path = os.path.join(self.temp_directory, mesh_name + ".mesh.xml")
 
+			
+			armature = selected_mesh.find_armature()
+			if armature and animation:
+				#The file name of the exported armature/skeleton
+				armature_file_name = mesh_name + ".skeleton"
+	
+				#check if it's a linked armature
+				if armature.library:
+					referenced_skeleton_path = self.find_library_skeleton_path(armature)
+					#since it's a linked armature we won't export the skeleton
+				else:
+					#if it's not a linked armature it's exported to xml and we should convert it
+					skeleton_xml_path = os.path.join(self.temp_directory, mesh_name + ".skeleton.xml")
+					referenced_skeleton_path = "./" + armature_file_name
+					skeleton_path = self._convert_xml_to_mesh(skeleton_xml_path, armature_file_name)
+				
+				#we need to adjust the relative path of the skeleton in the mesh file
+				self.adjust_ogre_xml_skeleton(xml_path, referenced_skeleton_path)
+				self.operator.report({'INFO'}, "Skeleton path set to " + referenced_skeleton_path)
+				
+				
 			mesh_path = self._convert_xml_to_mesh(xml_path, mesh_name + ".mesh")
 			#see if we have meshmagick available and if so call it
 			if mesh_path and self.meshmagick_path:
