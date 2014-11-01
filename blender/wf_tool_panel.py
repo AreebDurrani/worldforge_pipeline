@@ -96,10 +96,6 @@ class PANEL_OT_wf_ogre_export(bpy.types.Panel):
         row = layout.row(align=True)
         row.prop(scene, "frame_start")
         row.prop(scene, "frame_end")
-        col = layout.column() 
-        obj = get_armature ('wf_armature')
-        
-        col.prop_search(scene, "Rig", bpy.data, "armatures")
         row = layout.row()
         row.prop(scene, "EX_wf_export_optimize")
         row = layout.row()
