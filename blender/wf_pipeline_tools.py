@@ -13,7 +13,7 @@ bl_info = {
 	'wiki_url': ''
 	}
 
-import bpy, os, shutil, subprocess, tempfile, fnmatch
+import bpy, os, shutil, subprocess, tempfile, fnmatch, traceback
 from bpy.types import Operator
 # from bpy.props import FloatVectorProperty
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
@@ -344,6 +344,7 @@ class Exporter:
 			xml_path, skeleton_xml_path = self.export_to_xml(animation)
 		except Exception as e:
 			self.operator.report({'ERROR'}, "Error when exporting mesh. Make sure you have the Ogre exporter installed. Message: " + str(e))
+			traceback.print_exc()
 			return
 
 		skeleton_path = None
