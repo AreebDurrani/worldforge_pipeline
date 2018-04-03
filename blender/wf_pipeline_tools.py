@@ -5,7 +5,7 @@ Tool depends on Blender to Ogre exporter http://code.google.com/p/blender2ogre
 bl_info = {
     'name': 'Pipeline Tools',
     'category': 'WorldForge',
-    'author': 'anisimkalugin.com',
+    'author': 'anisimkalugin.com, erik@ogenvik.org',
     'version': (0, 0, 1),
     'blender': (2, 71, 0),
     'description': 'Worldforge Pipeline Tools',
@@ -207,7 +207,7 @@ class Exporter:
     def __exit__(self, type, value, traceback):
         # Clean up the temporary directory
         if self.temp_directory:
-            # print(self.temp_directory)
+            #print(self.temp_directory)
             shutil.rmtree(self.temp_directory)
 
     def _locate_ogre_tools(self):
@@ -215,6 +215,11 @@ class Exporter:
         # First check if there's a command on the path
         self.converter_path = shutil.which("OgreXMLConverter")
         self.meshmagick_path = shutil.which("meshmagick")
+
+        if self.converter_path:
+            self.operator.report({'INFO'}, "Found Ogre XML converter at " + self.converter_path)
+        else:
+            self.operator.report({'INFO'}, "Could not find Ogre XML converter.")
 
         # On Windows we can provide the tools ourselves, but on Linux they have to be provided by the system (issues with shared libraries and all)
         # We'll let the provided tools override the ones installed system wide, just to avoid issues. We could expand this with the ability for the user to specify the path.
@@ -238,12 +243,7 @@ class Exporter:
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-        self.operator.report({'INFO'}, ogre_xml_path)
-
-        if self.context.scene.EX_wf_export_generate_tangents:
-            result = subprocess.call([self.converter_path, "-t", ogre_xml_path, dest_mesh_path])
-        else:
-            result = subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
+        result = subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
         if result == 0:
             self.operator.report({'INFO'}, "Wrote mesh file " + dest_mesh_path)
         else:
