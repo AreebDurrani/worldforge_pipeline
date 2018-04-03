@@ -1,6 +1,25 @@
+# Copyright (C) 2010 Brett Hartshorn
+# Copyright (C) 2014 Anisim Kalugin
+# Copyright (C) 2014 Erik Ogenvik
+#
+# This library is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public
+# License as published by the Free Software Foundation; either
+# version 2.1 of the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this library; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
 '''
 Tool depends on Blender to Ogre exporter http://code.google.com/p/blender2ogre
 '''
+import math
 
 bl_info = {
     'name': 'Pipeline Tools',
@@ -172,6 +191,762 @@ class OgreMaterialManager:
                     print(image_names_list)
 
 
+from xml.sax.saxutils import XMLGenerator, quoteattr
+
+
+class SimpleSaxWriter():
+    def __init__(self, output, root_tag, root_attrs):
+        self.output = output
+        self.root_tag = root_tag
+        self.indent = 0
+        output.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        self.start_tag(root_tag, root_attrs)
+
+    def _out_tag(self, name, attrs, isLeaf):
+        # sorted attributes -- don't want attributes output in random order, which is what the XMLGenerator class does
+        self.output.write(" " * self.indent)
+        self.output.write("<%s" % name)
+        sortedNames = sorted(attrs.keys())  # sorted list of attribute names
+        for name in sortedNames:
+            value = attrs[name]
+            # if not of type string,
+            if not isinstance(value, str):
+                # turn it into a string
+                value = str(value)
+            self.output.write(" %s=%s" % (name, quoteattr(value)))
+        if isLeaf:
+            self.output.write("/")
+        else:
+            self.indent += 4
+        self.output.write(">\n")
+
+    def start_tag(self, name, attrs):
+        self._out_tag(name, attrs, False)
+
+    def end_tag(self, name):
+        self.indent -= 4
+        self.output.write(" " * self.indent)
+        self.output.write("</%s>\n" % name)
+
+    def leaf_tag(self, name, attrs):
+        self._out_tag(name, attrs, True)
+
+    def close(self):
+        self.end_tag(self.root_tag)
+
+
+class RElement(object):
+    def appendChild(self, child):
+        self.childNodes.append(child)
+
+    def setAttribute(self, name, value):
+        self.attributes[name] = value
+
+    def __init__(self, tag):
+        self.tagName = tag
+        self.childNodes = []
+        self.attributes = {}
+
+    def toprettyxml(self, lines, indent):
+        s = '<%s ' % self.tagName
+        sortedNames = sorted(self.attributes.keys())
+        for name in sortedNames:
+            value = self.attributes[name]
+            if not isinstance(value, str):
+                value = str(value)
+            s += '%s=%s ' % (name, quoteattr(value))
+        if not self.childNodes:
+            s += '/>'
+            lines.append(('  ' * indent) + s)
+        else:
+            s += '>'
+            lines.append(('  ' * indent) + s)
+            indent += 1
+            for child in self.childNodes:
+                child.toprettyxml(lines, indent)
+            indent -= 1
+            lines.append(('  ' * indent) + '</%s>' % self.tagName)
+
+
+class RDocument(object):
+    def __init__(self):
+        self.documentElement = None
+        self.comments = []
+
+    def appendChild(self, root):
+        self.documentElement = root
+
+    def addComment(self, text):
+        self.comments.append("<!-- {} -->".format(text))
+
+    def createElement(self, tag):
+        e = RElement(tag)
+        e.document = self
+        return e
+
+    def toprettyxml(self):
+        indent = 0
+        lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+        lines += self.comments
+        self.documentElement.toprettyxml(lines, indent)
+        return '\n'.join(lines)
+
+
+
+import os, time, sys, logging
+import mathutils
+
+class ReportSingleton(object):
+    def __init__(self):
+        self.reset()
+
+    def show(self):
+        bpy.ops.wm.call_menu( name='MT_mini_report' )
+
+    def reset(self):
+        self.materials = []
+        self.meshes = []
+        self.lights = []
+        self.cameras = []
+        self.armatures = []
+        self.armature_animations = []
+        self.shape_animations = []
+        self.textures = []
+        self.vertices = 0
+        self.orig_vertices = 0
+        self.faces = 0
+        self.triangles = 0
+        self.warnings = []
+        self.errors = []
+        self.messages = []
+        self.paths = []
+
+    def report(self):
+        r = ['Report:']
+        ex = ['Extended Report:']
+        if self.errors:
+            r.append( '  ERRORS:' )
+            for a in self.errors: r.append( '    - %s' %a )
+
+        #if not bpy.context.selected_objects:
+        #    self.warnings.append('YOU DID NOT SELECT ANYTHING TO EXPORT')
+        if self.warnings:
+            r.append( '  WARNINGS:' )
+            for a in self.warnings: r.append( '    - %s' %a )
+
+        if self.messages:
+            r.append( '  MESSAGES:' )
+            for a in self.messages: r.append( '    - %s' %a )
+        if self.paths:
+            r.append( '  PATHS:' )
+            for a in self.paths: r.append( '    - %s' %a )
+
+        if self.vertices:
+            r.append( '  Original Vertices: %s' %self.orig_vertices)
+            r.append( '  Exported Vertices: %s' %self.vertices )
+            r.append( '  Original Faces: %s' %self.faces )
+            r.append( '  Exported Triangles: %s' %self.triangles )
+            ## TODO report file sizes, meshes and textures
+
+        for tag in 'meshes lights cameras armatures armature_animations shape_animations materials textures'.split():
+            attr = getattr(self, tag)
+            if attr:
+                name = tag.replace('_',' ').upper()
+                r.append( '  %s: %s' %(name, len(attr)) )
+                if attr:
+                    ex.append( '  %s:' %name )
+                    for a in attr: ex.append( '    . %s' %a )
+
+        txt = '\n'.join( r )
+        ex = '\n'.join( ex )        # console only - extended report
+        print('_'*80)
+        print(txt)
+        print(ex)
+        print('_'*80)
+        return txt
+
+Report = ReportSingleton()
+
+invalid_chars = '\/:*?"<>|'
+
+def clean_object_name(value):
+    global invalid_chars
+    for invalid_char in invalid_chars:
+        value = value.replace(invalid_char, '_')
+    value = value.replace(' ', '_')
+    return value
+
+def swap(vec):
+    if len(vec) == 3: return mathutils.Vector( [vec.x, vec.z, -vec.y] )
+    elif len(vec) == 4: return mathutils.Quaternion( [ vec.w, vec.x, vec.z, -vec.y] )
+
+def timer_diff_str(start):
+    return "%0.2f" % (time.time()-start)
+
+def dot_mesh( ob, target_file):
+    """
+    export the vertices of an object into a .mesh file
+
+    ob: the blender object
+    path: the path to save the .mesh file to. path MUST exist
+    force_name: force a different name for this .mesh
+    kwargs:
+      * material_prefix - string. (optional)
+      * overwrite - bool. (optional) default False
+    """
+    obj_name = ob.name
+    obj_name = clean_object_name(obj_name)
+
+    start = time.time()
+
+    # blender per default does not calculate these. when querying the quads/tris
+    # of the object blender would crash if calc_tessface was not updated
+    ob.data.update(calc_tessface=True)
+
+    Report.meshes.append( obj_name )
+    Report.faces += len( ob.data.tessfaces )
+    Report.orig_vertices += len( ob.data.vertices )
+
+    cleanup = False
+    if ob.modifiers:
+        cleanup = True
+        copy = ob.copy()
+        #bpy.context.scene.objects.link(copy)
+        rem = []
+        for mod in copy.modifiers:        # remove armature and array modifiers before collaspe
+            if mod.type in 'ARMATURE ARRAY'.split(): rem.append( mod )
+        for mod in rem: copy.modifiers.remove( mod )
+        # bake mesh
+        mesh = copy.to_mesh(bpy.context.scene, True, "PREVIEW")    # collaspe
+    else:
+        copy = ob
+        mesh = ob.data
+
+    if logging:
+        print('      - Generating:', '%s.mesh.xml' % obj_name)
+
+    try:
+        with open(target_file, 'w') as f:
+            f.flush()
+    except Exception as e:
+        logging.error("Invalid mesh object name: " + obj_name)
+        return
+
+    with open(target_file, 'w') as f:
+        doc = SimpleSaxWriter(f, 'mesh', {})
+
+        # Very ugly, have to replace number of vertices later
+        doc.start_tag('sharedgeometry', {'vertexcount' : '__TO_BE_REPLACED_VERTEX_COUNT__'})
+
+        if logging:
+            print('      - Writing shared geometry')
+
+        doc.start_tag('vertexbuffer', {
+                'positions':'true',
+                'normals':'true',
+                'colours_diffuse' : str(bool( mesh.vertex_colors )),
+                'texture_coords' : '%s' % len(mesh.uv_textures) if mesh.uv_textures.active else '0'
+        })
+
+        # Vertex colors, note that you can define a vertex color
+        # material. see 'vertex_color_materials' below!
+        vcolors = None
+        vcolors_alpha = None
+        if len( mesh.tessface_vertex_colors ):
+            vcolors = mesh.tessface_vertex_colors[0]
+            for bloc in mesh.tessface_vertex_colors:
+                if bloc.name.lower().startswith('alpha'):
+                    vcolors_alpha = bloc; break
+
+        # Materials
+        # saves tuples of material name and material obj (or None)
+        materials = []
+        # a material named 'vertex.color.<yourname>' will overwrite
+        # the diffuse color in the mesh file!
+        vertex_color_materials = []
+        for mat in ob.data.materials:
+            mat_name = "_missing_material_"
+            if mat is not None:
+                mat_name = mat.name
+            #mat_name = material_name(mat_name, prefix=material_prefix)
+            extern = False
+            if mat_name.startswith("extern."):
+                mat_name = mat_name[len("extern."):]
+                extern = True
+            if mat:
+                materials.append( (mat_name, extern, mat) )
+            else:
+                print('[WARNING:] Bad material data in', ob)
+                materials.append( ('_missing_material_', True, None) ) # fixed dec22, keep proper index
+        if not materials:
+            materials.append( ('_missing_material_', True, None) )
+        vertex_groups = {}
+        material_faces = []
+        for matidx, mat in enumerate(materials):
+            material_faces.append([])
+
+        # Textures
+        dotextures = False
+        uvcache = [] # should get a little speed boost by this cache
+        if mesh.tessface_uv_textures.active:
+            dotextures = True
+            for layer in mesh.tessface_uv_textures:
+                uvs = []; uvcache.append( uvs ) # layer contains: name, active, data
+                for uvface in layer.data:
+                    uvs.append( (uvface.uv1, uvface.uv2, uvface.uv3, uvface.uv4) )
+
+        shared_vertices = {}
+        _remap_verts_ = []
+        numverts = 0
+
+        for F in mesh.tessfaces:
+            smooth = F.use_smooth
+            faces = material_faces[ F.material_index ]
+            # Ogre only supports triangles
+            tris = []
+            tris.append( (F.vertices[0], F.vertices[1], F.vertices[2]) )
+            if len(F.vertices) >= 4:
+                tris.append( (F.vertices[0], F.vertices[2], F.vertices[3]) )
+            if dotextures:
+                a = []; b = []
+                uvtris = [ a, b ]
+                for layer in uvcache:
+                    uv1, uv2, uv3, uv4 = layer[ F.index ]
+                    a.append( (uv1, uv2, uv3) )
+                    b.append( (uv1, uv3, uv4) )
+
+            for tidx, tri in enumerate(tris):
+                face = []
+                for vidx, idx in enumerate(tri):
+                    v = mesh.vertices[ idx ]
+
+                    if smooth:
+                        nx,ny,nz = swap( v.normal ) # fixed june 17th 2011
+                    else:
+                        nx,ny,nz = swap( F.normal )
+
+                    export_vertex_color, color_tuple = \
+                            extract_vertex_color(vcolors, vcolors_alpha, F, idx)
+                    r,g,b,ra = color_tuple
+
+                    # Texture maps
+                    vert_uvs = []
+                    if dotextures:
+                        for layer in uvtris[ tidx ]:
+                            vert_uvs.append(layer[ vidx ])
+
+                    ''' Check if we already exported that vertex with same normal, do not export in that case,
+                        (flat shading in blender seems to work with face normals, so we copy each flat face'
+                        vertices, if this vertex with same normals was already exported,
+                        todo: maybe not best solution, check other ways (let blender do all the work, or only
+                        support smooth shading, what about seems, smoothing groups, materials, ...)
+                    '''
+                    vert = VertexNoPos(numverts, nx, ny, nz, r, g, b, ra, vert_uvs)
+                    alreadyExported = False
+                    if idx in shared_vertices:
+                        for vert2 in shared_vertices[idx]:
+                            #does not compare ogre_vidx (and position at the moment)
+                            if vert == vert2:
+                                face.append(vert2.ogre_vidx)
+                                alreadyExported = True
+                                #print(idx,numverts, nx,ny,nz, r,g,b,ra, vert_uvs, "already exported")
+                                break
+                        if not alreadyExported:
+                            face.append(vert.ogre_vidx)
+                            shared_vertices[idx].append(vert)
+                            #print(numverts, nx,ny,nz, r,g,b,ra, vert_uvs, "appended")
+                    else:
+                        face.append(vert.ogre_vidx)
+                        shared_vertices[idx] = [vert]
+                        #print(idx, numverts, nx,ny,nz, r,g,b,ra, vert_uvs, "created")
+
+                    if alreadyExported:
+                        continue
+
+                    numverts += 1
+                    _remap_verts_.append( v )
+
+                    x,y,z = swap(v.co)        # xz-y is correct!
+
+                    doc.start_tag('vertex', {})
+                    doc.leaf_tag('position', {
+                            'x' : '%6f' % x,
+                            'y' : '%6f' % y,
+                            'z' : '%6f' % z
+                    })
+
+                    doc.leaf_tag('normal', {
+                            'x' : '%6f' % nx,
+                            'y' : '%6f' % ny,
+                            'z' : '%6f' % nz
+                    })
+
+                    if export_vertex_color:
+                        doc.leaf_tag('colour_diffuse', {'value' : '%6f %6f %6f %6f' % (r,g,b,ra)})
+
+                    # Texture maps
+                    if dotextures:
+                        for uv in vert_uvs:
+                            doc.leaf_tag('texcoord', {
+                                    'u' : '%6f' % uv[0],
+                                    'v' : '%6f' % (1.0-uv[1])
+                            })
+
+                    doc.end_tag('vertex')
+
+                append_triangle_in_vertex_group(mesh, ob, vertex_groups, face, tri)
+                faces.append( (face[0], face[1], face[2]) )
+
+        Report.vertices += numverts
+
+        doc.end_tag('vertexbuffer')
+        doc.end_tag('sharedgeometry')
+
+        if logging:
+            print('        Done at', timer_diff_str(start), "seconds")
+            print('      - Writing submeshes')
+
+        doc.start_tag('submeshes', {})
+        for matidx, (mat_name, extern, mat) in enumerate(materials):
+            if not len(material_faces[matidx]):
+                Report.warnings.append('BAD SUBMESH "%s": material %r, has not been applied to any faces - not exporting as submesh.' % (obj_name, mat_name) )
+                continue # fixes corrupt unused materials
+
+            submesh_attributes = {
+                'usesharedvertices' : 'true',
+                # Maybe better look at index of all faces, if one over 65535 set to true;
+                # Problem: we know it too late, postprocessing of file needed
+                "use32bitindexes" : str(bool(numverts > 65535)),
+                "operationtype" : "triangle_list"
+            }
+            if mat_name != "_missing_material_":
+                submesh_attributes['material'] = mat_name
+
+            doc.start_tag('submesh', submesh_attributes)
+            doc.start_tag('faces', {
+                'count' : str(len(material_faces[matidx]))
+            })
+            for fidx, (v1, v2, v3) in enumerate(material_faces[matidx]):
+                doc.leaf_tag('face', {
+                    'v1' : str(v1),
+                    'v2' : str(v2),
+                    'v3' : str(v3)
+                })
+            doc.end_tag('faces')
+            doc.end_tag('submesh')
+            Report.triangles += len(material_faces[matidx])
+
+        for name, ogre_indices in vertex_groups.items():
+            if len(ogre_indices) <= 0:
+                continue
+            submesh_attributes = {
+                'usesharedvertices' : 'true',
+                "use32bitindexes" : str(bool(numverts > 65535)),
+                "operationtype" : "triangle_list",
+                "material": "none",
+            }
+            doc.start_tag('submesh', submesh_attributes)
+            doc.start_tag('faces', {
+                'count' : len(ogre_indices)
+            })
+            for (v1, v2, v3) in ogre_indices:
+                doc.leaf_tag('face', {
+                    'v1' : str(v1),
+                    'v2' : str(v2),
+                    'v3' : str(v3)
+                })
+            doc.end_tag('faces')
+            doc.end_tag('submesh')
+
+        del material_faces
+        del shared_vertices
+        doc.end_tag('submeshes')
+
+        # Submesh names
+        # todo: why is the submesh name taken from the material
+        # when we have the blender object name available?
+        doc.start_tag('submeshnames', {})
+        for matidx, (mat_name, extern, mat) in enumerate(materials):
+            doc.leaf_tag('submesh', {
+                    'name' : mat_name,
+                    'index' : str(matidx)
+            })
+        idx = len(materials)
+        for name in vertex_groups.keys():
+            name = name[len('ogre.vertex.group.'):]
+            doc.leaf_tag('submesh', {'name': name, 'index': idx})
+            idx += 1
+        doc.end_tag('submeshnames')
+
+        if logging:
+            print('        Done at', timer_diff_str(start), "seconds")
+
+        arm = ob.find_armature()
+        if arm:
+            doc.leaf_tag('skeletonlink', {
+                    'name' : '%s.skeleton' % obj_name
+            })
+            doc.start_tag('boneassignments', {})
+            boneOutputEnableFromName = {}
+            boneIndexFromName = {}
+            for bone in arm.pose.bones:
+                boneOutputEnableFromName[ bone.name ] = True
+            boneIndex = 0
+            for bone in arm.pose.bones:
+                boneIndexFromName[ bone.name ] = boneIndex
+                if boneOutputEnableFromName[ bone.name ]:
+                    boneIndex += 1
+            badverts = 0
+            for vidx, v in enumerate(_remap_verts_):
+                check = 0
+                for vgroup in v.groups:
+                    if vgroup.weight > 0.01:
+                        groupIndex = vgroup.group
+                        if groupIndex < len(copy.vertex_groups):
+                            vg = copy.vertex_groups[ groupIndex ]
+                            if vg.name in boneIndexFromName: # allows other vertex groups, not just armature vertex groups
+                                bnidx = boneIndexFromName[ vg.name ] # find_bone_index(copy,arm,vgroup.group)
+                                doc.leaf_tag('vertexboneassignment', {
+                                        'vertexindex' : str(vidx),
+                                        'boneindex' : str(bnidx),
+                                        'weight' : '%6f' % vgroup.weight
+                                })
+                                check += 1
+                        else:
+                            print('WARNING: object vertex groups not in sync with armature', copy, arm, groupIndex)
+                if check > 4:
+                    badverts += 1
+                    print('WARNING: vertex %s is in more than 4 vertex groups (bone weights)\n(this maybe Ogre incompatible)' %vidx)
+            if badverts:
+                Report.warnings.append( '%s has %s vertices weighted to too many bones (Ogre limits a vertex to 4 bones)\n[try increaseing the Trim-Weights threshold option]' %(mesh.name, badverts) )
+            doc.end_tag('boneassignments')
+
+        # Updated June3 2011 - shape animation works
+        if ob.data.shape_keys and len(ob.data.shape_keys.key_blocks):
+            print('      - Writing shape keys')
+
+            doc.start_tag('poses', {})
+            for sidx, skey in enumerate(ob.data.shape_keys.key_blocks):
+                if sidx == 0: continue
+                if len(skey.data) != len( mesh.vertices ):
+                    failure = 'FAILED to save shape animation - you can not use a modifier that changes the vertex count! '
+                    failure += '[ mesh : %s ]' %mesh.name
+                    Report.warnings.append( failure )
+                    print( failure )
+                    break
+
+                doc.start_tag('pose', {
+                        'name' : skey.name,
+                        # If target is 'mesh', no index needed, if target is submesh then submesh identified by 'index'
+                        #'index' : str(sidx-1),
+                        #'index' : '0',
+                        'target' : 'mesh'
+                })
+
+                for vidx, v in enumerate(_remap_verts_):
+                    pv = skey.data[ v.index ]
+                    x,y,z = swap( pv.co - v.co )
+                    #for i,p in enumerate( skey.data ):
+                    #x,y,z = p.co - ob.data.vertices[i].co
+                    #x,y,z = swap( ob.data.vertices[i].co - p.co )
+                    #if x==.0 and y==.0 and z==.0: continue        # the older exporter optimized this way, is it safe?
+                    doc.leaf_tag('poseoffset', {
+                            'x' : '%6f' % x,
+                            'y' : '%6f' % y,
+                            'z' : '%6f' % z,
+                            'index' : str(vidx)     # is this required?
+                    })
+                doc.end_tag('pose')
+            doc.end_tag('poses')
+
+
+            if logging:
+                print('        Done at', timer_diff_str(start), "seconds")
+
+            if ob.data.shape_keys.animation_data and len(ob.data.shape_keys.animation_data.nla_tracks):
+                print('      - Writing shape animations')
+                doc.start_tag('animations', {})
+                _fps = float( bpy.context.scene.render.fps )
+                for nla in ob.data.shape_keys.animation_data.nla_tracks:
+                    for idx, strip in enumerate(nla.strips):
+                        doc.start_tag('animation', {
+                                'name' : strip.name,
+                                'length' : str((strip.frame_end-strip.frame_start)/_fps)
+                        })
+                        doc.start_tag('tracks', {})
+                        doc.start_tag('track', {
+                                'type' : 'pose',
+                                'target' : 'mesh'
+                                # If target is 'mesh', no index needed, if target is submesh then submesh identified by 'index'
+                                #'index' : str(idx)
+                                #'index' : '0'
+                        })
+                        doc.start_tag('keyframes', {})
+                        for frame in range( int(strip.frame_start), int(strip.frame_end)+1, bpy.context.scene.frame_step):#thanks to Vesa
+                            bpy.context.scene.frame_set(frame)
+                            doc.start_tag('keyframe', {
+                                    'time' : str((frame-strip.frame_start)/_fps)
+                            })
+                            for sidx, skey in enumerate( ob.data.shape_keys.key_blocks ):
+                                if sidx == 0: continue
+                                doc.leaf_tag('poseref', {
+                                        'poseindex' : str(sidx-1),
+                                        'influence' : str(skey.value)
+                                })
+                            doc.end_tag('keyframe')
+                        doc.end_tag('keyframes')
+                        doc.end_tag('track')
+                        doc.end_tag('tracks')
+                        doc.end_tag('animation')
+                doc.end_tag('animations')
+                print('        Done at', timer_diff_str(start), "seconds")
+
+        ## Clean up and save
+        #bpy.context.scene.meshes.unlink(mesh)
+        if cleanup:
+            #bpy.context.scene.objects.unlink(copy)
+            copy.user_clear()
+            bpy.data.objects.remove(copy)
+            mesh.user_clear()
+            bpy.data.meshes.remove(mesh)
+            del copy
+            del mesh
+        del _remap_verts_
+        del uvcache
+        doc.close() # reported by Reyn
+        f.close()
+
+        if logging:
+            print('      - Created .mesh.xml at', timer_diff_str(start), "seconds")
+
+
+    # todo: Very ugly, find better way
+    def replaceInplace(f,searchExp,replaceExp):
+            import fileinput
+            for line in fileinput.input(f, inplace=1):
+                if searchExp in line:
+                    line = line.replace(searchExp,replaceExp)
+                sys.stdout.write(line)
+            fileinput.close() # reported by jakob
+
+    replaceInplace(target_file, '__TO_BE_REPLACED_VERTEX_COUNT__' + '"', str(numverts) + '"' )#+ ' ' * (ls - lr))
+    del(replaceInplace)
+
+
+    # note that exporting the skeleton does not happen here anymore
+    # it moved to the function dot_skeleton in its own module
+
+    mats = []
+    for mat_name, extern, mat in materials:
+        # _missing_material_ is marked as extern
+        if not extern:
+            mats.append(mat_name)
+        else:
+            print("extern material", mat_name)
+
+    logging.info('      - Created .mesh in total time %s seconds', timer_diff_str(start))
+
+    return mats
+
+def append_triangle_in_vertex_group(mesh, obj, vertex_groups, ogre_indices, blender_indices):
+    vertices = [mesh.vertices[i] for i in blender_indices]
+    names = set()
+    for v in vertices:
+        for g in v.groups:
+            if g.group >= len(obj.vertex_groups):
+                return
+            group = obj.vertex_groups.get(g.group)
+            if not group.name.startswith("ogre.vertex.group."):
+                return
+            names.add(group.name)
+    match_group = lambda name, v: name in [obj.vertex_groups[x.group].name for x in v.groups]
+    for name in names:
+        all_in_group = all([match_group(name, v) for v in vertices])
+        if not all_in_group:
+            continue
+        if name not in vertex_groups:
+            vertex_groups[name] = []
+        vertex_groups[name].append(ogre_indices)
+
+
+class VertexNoPos(object):
+    def __init__(self, ogre_vidx, nx,ny,nz, r,g,b,ra, vert_uvs):
+        self.ogre_vidx = ogre_vidx
+        self.nx = nx
+        self.ny = ny
+        self.nz = nz
+        self.r = r
+        self.g = g
+        self.b = b
+        self.ra = ra
+        self.vert_uvs = vert_uvs
+
+    '''does not compare ogre_vidx (and position at the moment) [ no need to compare position ]'''
+    def __eq__(self, o):
+        if not math.isclose(self.nx, o.nx): return False
+        if not math.isclose(self.ny, o.ny): return False
+        if not math.isclose(self.nz, o.nz): return False
+        if not math.isclose(self.r, o.r): return False
+        if not math.isclose(self.g, o.g): return False
+        if not math.isclose(self.b, o.b): return False
+        if not math.isclose(self.ra, o.ra): return False
+        if len(self.vert_uvs) != len(o.vert_uvs): return False
+        if self.vert_uvs:
+            for i, uv1 in enumerate( self.vert_uvs ):
+                uv2 = o.vert_uvs[ i ]
+                if uv1 != uv2: return False
+        return True
+
+    def __repr__(self):
+        return 'vertex(%d)' % self.ogre_vidx
+
+def extract_vertex_color(vcolors, vcolors_alpha, face, index):
+    r = 1.0
+    g = 1.0
+    b = 1.0
+    ra = 1.0
+    export = False
+    if vcolors:
+        k = list(face.vertices).index(index)
+        r,g,b = getattr( vcolors.data[face.index], 'color%s'%(k+1) )
+        if vcolors_alpha:
+            ra,ga,ba = getattr( vcolors_alpha.data[face.index], 'color%s'%(k+1) )
+        else:
+            ra = 1.0
+        export = True
+    return export, (r,g,b,ra)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class Exporter:
     def __init__(self, operator, context):
         self.DEBUG = False
@@ -207,8 +982,8 @@ class Exporter:
     def __exit__(self, type, value, traceback):
         # Clean up the temporary directory
         if self.temp_directory:
-            #print(self.temp_directory)
-            shutil.rmtree(self.temp_directory)
+            print(self.temp_directory)
+            #shutil.rmtree(self.temp_directory)
 
     def _locate_ogre_tools(self):
 
@@ -257,37 +1032,23 @@ class Exporter:
         ogre_xml_path = os.path.join(self.temp_directory, self.asset_name + ".mesh.xml")
         skeleton_xml_path = os.path.join(self.temp_directory, self.asset_name + ".skeleton.xml")
 
-        bpy.ops.ogre.export(
-            EX_COPY_SHADER_PROGRAMS=False,
-            EX_SWAP_AXIS='xz-y',
-            EX_SEP_MATS=False,
-            EX_ONLY_DEFORMABLE_BONES=False,
-            EX_SCENE=False,
-            EX_SELONLY=True,
-            EX_FORCE_CAMERA=False,
-            EX_FORCE_LAMPS=False,
-            EX_MESH=True,
-            EX_MESH_OVERWRITE=True,
-            EX_ARM_ANIM=animation,
-            EX_SHAPE_ANIM=animation,
-            EX_TRIM_BONE_WEIGHTS=0.01,
-            EX_ARRAY=True,
-            EX_MATERIALS=False,
-            EX_FORCE_IMAGE_FORMAT='NONE',
-            EX_DDS_MIPS=1,
-            EX_lodLevels=0,
-            EX_lodDistance=300,
-            EX_lodPercent=40,
-            EX_nuextremityPoints=0,
-            EX_generateEdgeLists=False,
-            EX_generateTangents=True,
-            EX_tangentSemantic='uvw',
-            EX_tangentUseParity=4,
-            EX_tangentSplitMirrored=False,
-            EX_tangentSplitRotated=False,
-            EX_reorganiseBuffers=False,
-            EX_optimiseAnimations=False,
-            filepath=ogre_xml_path)
+        logging.debug("Writing to file " + ogre_xml_path)
+        dot_mesh(bpy.context.active_object, ogre_xml_path)
+        # bpy.ops.ogre.export(
+        #     EX_SWAP_AXIS='xz-y',
+        #     EX_SELONLY=True,
+        #     EX_MESH=True,
+        #     EX_MESH_OVERWRITE=True,
+        #     EX_ARM_ANIM=animation,
+        #     EX_SHAPE_ANIM=animation,
+        #     EX_TRIM_BONE_WEIGHTS=0.01,
+        #     EX_ARRAY=True,
+        #     EX_DDS_MIPS=1,
+        #     EX_tangentSemantic='uvw',
+        #     EX_tangentUseParity=4,
+        #     EX_tangentSplitMirrored=False,
+        #     EX_tangentSplitRotated=False,
+        #     filepath=ogre_xml_path)
 
         return ogre_xml_path, skeleton_xml_path
 
