@@ -139,12 +139,10 @@ class OgreMaterialManager:
 		for ob in sel:
 			for slot in ob.material_slots:
 				mat = slot.material
-				mat.name
-				
+
 				if mat.active_texture == None:
 					continue
 
-				img = mat.active_texture
 				image_path = mat.active_texture.image.filepath #= 'asdfsadf' manipulate the file path
 				
 				#image_names_list = self.get_ogre_mat_name( image_path )
@@ -233,12 +231,22 @@ class Exporter:
 			return
 			
 		dest_mesh_path = os.path.join(self.dest_path, final_asset_name)
-		
+
+		directory = os.path.dirname(dest_mesh_path)
+		if not os.path.exists(directory):
+			os.makedirs(directory)
+
+		self.operator.report({'INFO'}, ogre_xml_path)
+
 		if self.context.scene.EX_wf_export_generate_tangents:
-			subprocess.call([self.converter_path, "-t", ogre_xml_path, dest_mesh_path])
+			result = subprocess.call([self.converter_path, "-t", ogre_xml_path, dest_mesh_path])
 		else:
-			subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
-		self.operator.report({'INFO'}, "Wrote mesh file " + dest_mesh_path)
+			result = subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
+		if result == 0:
+			self.operator.report({'INFO'}, "Wrote mesh file " + dest_mesh_path)
+		else:
+			self.operator.report({'ERROR'}, "Error when writing mesh file " + dest_mesh_path)
+
 		return dest_mesh_path
 				
 	def export_to_xml(self, animation = False):
@@ -339,7 +347,7 @@ class Exporter:
 		'''Exports the asset to a .mesh file'''
 
 		try:		
-			xml_path, skeleton_xml_path = self.export_to_xml(animation)
+			self.export_to_xml(animation)
 		except Exception as e:
 			self.operator.report({'ERROR'}, "Error when exporting mesh. Make sure you have the Ogre exporter installed. Message: " + str(e))
 			traceback.print_exc()
