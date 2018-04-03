@@ -617,7 +617,7 @@ def register():
 
 
 def unregister():
-    del bpy.types.Scene.rename_panel
+    del bpy.types.Scene.wf_rename_panel
 
     bpy.utils.unregister_class(OBJECT_OT_wfoe_static)
     bpy.utils.unregister_manual_map(wfoe_static_manual_map)
@@ -638,7 +638,7 @@ def unregister():
     bpy.utils.unregister_manual_map(wf_rename_objects_manual_map)
 
     bpy.utils.unregister_class(OBJECT_OT_wf_pivot_to_selected)
-    bpy.utils.unregister_manual_map(wf_pivot_to_selected - manual_map)
+    bpy.utils.unregister_manual_map(wf_pivot_to_selected_manual_map)
 
 
 if __name__ == '__main__':
