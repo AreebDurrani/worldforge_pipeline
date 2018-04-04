@@ -977,7 +977,7 @@ class Exporter:
         self.temp_directory = tempfile.mkdtemp()
         tokens = bpy.data.filepath.split(os.sep)
         # The name of the asset, without any extensions. I.e. "deer.blend" becomes "deer"
-        self.asset_name = (tokens[-1].split('.')[0])
+        self.asset_name = bpy.context.active_object.name
         # self.skeleton_name = bpy.data.scenes['Scene'].Rig
 
         self.skeleton_name = self.asset_name
@@ -986,8 +986,15 @@ class Exporter:
         if 'source' in tokens:
             #Get the last "source" entry, by reversing the list ('::-1')
             intersect = len(tokens) - 1 - tokens[::-1].index('source')
-        destTokens = tokens[0:intersect]
-        destTokens.append('model')
+        if intersect == -1:
+            self.operator.report({'WARNING'}, "The Blender file isn't placed below a 'source' directory, "
+                                              "as it should be. Placing model and skeleton in same directory as "
+                                              "Blender file.")
+            destTokens = tokens[0:-1]
+        else:
+            destTokens = tokens[0:intersect]
+            destTokens.append('model')
+
         # The path to the destination directory, where the mesh and skeleton should be placed
         self.dest_path = (os.sep).join(destTokens)
 
@@ -997,6 +1004,9 @@ class Exporter:
             _id = tokens.index('assets')
             self.assets_relative_path_tokens = tokens[_id:-1]
             self.assets_root = (os.sep).join(tokens[0:_id + 1])
+        else:
+            self.operator.report({'WARNING'}, "It seems the Blender file isn't placed in the Worldforge Assets "
+                                              "Repository. Automatic naming of material will not work.")
 
     def __enter__(self):
         return self
@@ -1115,7 +1125,7 @@ class Exporter:
         '''Exports the asset to a .mesh file'''
 
         try:
-            self.export_to_xml(animation)
+            xml_path, skeleton_path = self.export_to_xml(animation)
         except Exception as e:
             self.operator.report({'ERROR'},
                                  "Error when exporting mesh. Make sure you have the Ogre exporter installed. Message: " + str(
@@ -1125,40 +1135,37 @@ class Exporter:
 
         skeleton_path = None
 
-        for selected_mesh in bpy.context.selected_objects:
+        mesh_name = bpy.context.active_object.name
 
-            mesh_name = selected_mesh.name
-            xml_path = os.path.join(self.temp_directory, mesh_name + ".mesh.xml")
+        armature = bpy.context.active_object.find_armature()
+        if armature and animation:
+            # The file name of the exported armature/skeleton
+            armature_file_name = mesh_name + ".skeleton"
 
-            armature = selected_mesh.find_armature()
-            if armature and animation:
-                # The file name of the exported armature/skeleton
-                armature_file_name = mesh_name + ".skeleton"
+            # check if it's a linked armature
+            if armature.library:
+                referenced_skeleton_path = self.find_library_skeleton_path(armature)
+            # since it's a linked armature we won't export the skeleton
+            else:
+                # if it's not a linked armature it's exported to xml and we should convert it
+                skeleton_xml_path = os.path.join(self.temp_directory, mesh_name + ".skeleton.xml")
+                referenced_skeleton_path = "./" + armature_file_name
+                skeleton_path = self._convert_xml_to_mesh(skeleton_xml_path, armature_file_name)
 
-                # check if it's a linked armature
-                if armature.library:
-                    referenced_skeleton_path = self.find_library_skeleton_path(armature)
-                # since it's a linked armature we won't export the skeleton
-                else:
-                    # if it's not a linked armature it's exported to xml and we should convert it
-                    skeleton_xml_path = os.path.join(self.temp_directory, mesh_name + ".skeleton.xml")
-                    referenced_skeleton_path = "./" + armature_file_name
-                    skeleton_path = self._convert_xml_to_mesh(skeleton_xml_path, armature_file_name)
+            # we need to adjust the relative path of the skeleton in the mesh file
+            self.adjust_ogre_xml_skeleton(xml_path, referenced_skeleton_path)
+            self.operator.report({'INFO'}, "Skeleton path set to " + referenced_skeleton_path)
 
-                # we need to adjust the relative path of the skeleton in the mesh file
-                self.adjust_ogre_xml_skeleton(xml_path, referenced_skeleton_path)
-                self.operator.report({'INFO'}, "Skeleton path set to " + referenced_skeleton_path)
-
-            mesh_path = self._convert_xml_to_mesh(xml_path, mesh_name + ".mesh")
-            # see if we have meshmagick available and if so call it
-            if mesh_path and self.meshmagick_path:
-                # Check if mesh optimization is turned on
-                if self.context.scene.EX_wf_export_optimize:
-                    subprocess.call([self.meshmagick_path, 'optimise', mesh_path])
-                    self.operator.report({'INFO'}, "Optimised mesh file")
-                    if animation and skeleton_path:
-                        subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
-                        self.operator.report({'INFO'}, "Optimised skeleton file")
+        mesh_path = self._convert_xml_to_mesh(xml_path, mesh_name + ".mesh")
+        # see if we have meshmagick available and if so call it
+        if mesh_path and self.meshmagick_path:
+            # Check if mesh optimization is turned on
+            if self.context.scene.EX_wf_export_optimize:
+                subprocess.call([self.meshmagick_path, 'optimise', mesh_path])
+                self.operator.report({'INFO'}, "Optimised mesh file")
+                if animation and skeleton_path:
+                    subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
+                    self.operator.report({'INFO'}, "Optimised skeleton file")
 
 
 # ----------------------------------------------------------------------------
