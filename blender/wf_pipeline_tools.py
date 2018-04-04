@@ -1128,7 +1128,7 @@ class Exporter:
         else:
             return armature_relative_path + "/" + armature_file_name
 
-    def export_to_mesh(self, animation=False):
+    def export_to_mesh(self, mesh_name, animation=False):
         '''Exports the asset to a .mesh file'''
 
         try:
@@ -1141,8 +1141,6 @@ class Exporter:
             return
 
         skeleton_path = None
-
-        mesh_name = bpy.context.active_object.name
 
         armature = bpy.context.active_object.find_armature()
         if armature and animation:
@@ -1187,7 +1185,7 @@ class OBJECT_OT_wfoe_animated(Operator, AddObjectHelper):
 
     def execute(self, context):
         with Exporter(self, context) as exporter:
-            exporter.export_to_mesh(True)
+            exporter.export_to_mesh(bpy.context.scene.wf_mesh_name, True)
         return {'FINISHED'}
 
 
@@ -1200,7 +1198,7 @@ class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
 
     def execute(self, context):
         with Exporter(self, context) as exporter:
-            exporter.export_to_mesh(False)
+            exporter.export_to_mesh(bpy.context.scene.wf_mesh_name, False)
         return {'FINISHED'}
 
 
@@ -1460,6 +1458,9 @@ class PANEL_OT_wf_ogre_export(bpy.types.Panel):
 
         scene = context.scene
 
+        col = layout.column(align=True)
+        col.label(text="Mesh name:")
+        layout.prop(scene, "wf_mesh_name")
         row = layout.row()
         row.operator("mesh.wf_export_ogre_static", icon='VIEW3D')
 
@@ -1471,11 +1472,19 @@ class PANEL_OT_wf_ogre_export(bpy.types.Panel):
         row = layout.row()
         row.operator("mesh.wf_export_ogre_animated", icon='BONE_DATA')
 
+wf_active_object = bpy.context.active_object
+@bpy.app.handlers.persistent
+def wf_mesh_name_handler(dummy):
+    global wf_active_object
+    if wf_active_object != bpy.context.active_object:
+        wf_active_object = bpy.context.active_object
+        bpy.context.scene.wf_mesh_name = wf_active_object.name
 
 # ----------------------------------------------------------------------------
 # --------------------------- REGISTRATION -----------------------------------
 # ----------------------------------------------------------------------------
 def register():
+    bpy.types.Scene.wf_mesh_name = bpy.props.StringProperty(name="", description="Rename objects with this string")
     bpy.types.Scene.wf_rename_panel = bpy.props.StringProperty(name="", description="Rename objects with this string")
 
     bpy.utils.register_class(OBJECT_OT_wfoe_static)
@@ -1505,9 +1514,11 @@ def register():
     bpy.utils.register_class(PANEL_OT_wf_tools)
     bpy.types.Scene.EX_wf_export_optimize = bpy.props.BoolProperty(default=False, name="Optimize mesh",
                                                                    description="If enabled, MeshMagick (if available) will be used to optimize the mesh.")
+    bpy.app.handlers.scene_update_post.append(wf_mesh_name_handler)
 
 
 def unregister():
+    del bpy.types.Scene.wf_mesh_name
     del bpy.types.Scene.wf_rename_panel
 
     bpy.utils.unregister_class(OBJECT_OT_wfoe_static)
@@ -1536,6 +1547,7 @@ def unregister():
     bpy.utils.unregister_class(PANEL_OT_wf_rigging_panel)
     bpy.utils.unregister_class(PANEL_OT_wf_tools)
 
+    bpy.app.handlers.scene_update_post.remove(wf_mesh_name_handler)
 
 if __name__ == '__main__':
     register()
