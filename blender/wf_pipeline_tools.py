@@ -479,20 +479,25 @@ def dot_mesh(ob, target_file):
         # Materials
         # saves tuples of material name and material obj (or None)
         materials = []
-        # a material named 'vertex.color.<yourname>' will overwrite
-        # the diffuse color in the mesh file!
-        vertex_color_materials = []
         for mat in ob.data.materials:
             mat_name = "_missing_material_"
-            if mat is not None:
-                mat_name = mat.name
-            # mat_name = material_name(mat_name, prefix=material_prefix)
-            extern = False
-            if mat_name.startswith("extern."):
-                mat_name = mat_name[len("extern."):]
-                extern = True
             if mat:
-                materials.append((mat_name, extern, mat))
+                #Look for a texture named "D.png", which indicates a diffuse texture, and generate the material name based on that
+                for texture_slot in mat.texture_slots:
+                    if texture_slot and texture_slot.texture:
+                        if type(texture_slot.texture) is bpy.types.ImageTexture and texture_slot.texture.image:
+                            filepath = texture_slot.texture.image.filepath
+                            if (filepath.endswith('D.png')):
+                                _, filepath = filepath.split('//', 1)
+                                if (filepath[0] is not "/"):
+                                    filepath = os.path.abspath(os.path.dirname(bpy.data.filepath) + os.sep + filepath)
+                                path_tokens = filepath.split(os.sep)
+                                intersect = len(path_tokens) - 1 - path_tokens[::-1].index('assets')
+                                if intersect != -1:
+                                    mat_name = "/" + "/".join(path_tokens[intersect + 1:-1])
+                                    break
+
+                materials.append((mat_name, False, mat))
             else:
                 print('[WARNING:] Bad material data in', ob)
                 materials.append(('_missing_material_', True, None))  # fixed dec22, keep proper index
@@ -712,12 +717,14 @@ def dot_mesh(ob, target_file):
         doc.end_tag('submeshes')
 
         # Submesh names
-        # todo: why is the submesh name taken from the material
-        # when we have the blender object name available?
         doc.start_tag('submeshnames', {})
         for matidx, (mat_name, extern, mat) in enumerate(materials):
+
+            submesh_name = obj_name
+            if matidx > 0:
+                submesh_name += str(matidx)
             doc.leaf_tag('submesh', {
-                'name': mat_name,
+                'name': submesh_name,
                 'index': str(matidx)
             })
         idx = len(materials)
