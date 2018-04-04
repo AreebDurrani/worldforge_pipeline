@@ -984,7 +984,8 @@ class Exporter:
 
         intersect = -1
         if 'source' in tokens:
-            intersect = tokens.index('source')
+            #Get the last "source" entry, by reversing the list ('::-1')
+            intersect = len(tokens) - 1 - tokens[::-1].index('source')
         destTokens = tokens[0:intersect]
         destTokens.append('model')
         # The path to the destination directory, where the mesh and skeleton should be placed
@@ -1003,8 +1004,8 @@ class Exporter:
     def __exit__(self, type, value, traceback):
         # Clean up the temporary directory
         if self.temp_directory:
-            print(self.temp_directory)
-            # shutil.rmtree(self.temp_directory)
+            #print(self.temp_directory)
+            shutil.rmtree(self.temp_directory)
 
     def _locate_ogre_tools(self):
 
