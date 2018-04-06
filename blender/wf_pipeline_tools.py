@@ -403,12 +403,13 @@ def dot_mesh(target_file):
 
     multimeshes = len(objects) > 1
 
-    arm = objects[0].find_armature()
+    if multimeshes:
+        for object in objects:
+            if object.find_armature():
+                raise Exception("You cannot export multiple objects if there's an armature attached."
+                                " Either export them one by one, or combine them.")
 
-    for object in objects:
-        if arm != object.find_armature():
-            logging.error("Multiple meshes selected, but armatures differ.")
-            return
+    arm = objects[0].find_armature()
 
     obj_name = target_file
 
@@ -514,7 +515,8 @@ def dot_mesh(target_file):
             # saves tuples of material name and material obj (or None)
             materials = []
             for mat in ob.data.materials:
-                mat_name = "_missing_material_"
+                #Default to the name of the material unless we can find a D.png texture
+                mat_name = mat.name
                 if mat:
                     #Look for a texture named "D.png", which indicates a diffuse texture, and generate the material name based on that
                     for texture_slot in mat.texture_slots:
@@ -531,6 +533,7 @@ def dot_mesh(target_file):
                                         mat_name = "/" + "/".join(path_tokens[intersect + 1:-1])
                                         break
 
+                    print(mat_name)
                     materials.append((mat_name, False, mat))
                 else:
                     print('[WARNING:] Bad material data in', ob)
@@ -766,12 +769,13 @@ def dot_mesh(target_file):
 
         idx = 0
         for submesh in submeshes:
-            materials = submesh['materials']
-            for matidx, (mat_name, extern, mat) in enumerate(materials):
+            materials = submesh['mesh'].materials
+            for matidx, material in enumerate(materials):
 
-                submesh_name = obj_name
-                if matidx > 0:
-                    submesh_name += str(matidx)
+                if len(materials) > 1:
+                    submesh_name = material.name
+                else:
+                    submesh_name = submesh['ob'].name
                 doc.leaf_tag('submesh', {
                     'name': submesh_name,
                     'index': str(idx + matidx)
@@ -787,127 +791,131 @@ def dot_mesh(target_file):
             print('        Done at', timer_diff_str(start), "seconds")
 
 
-        # if arm:
-        #     doc.leaf_tag('skeletonlink', {
-        #         'name': '%s.skeleton' % obj_name
-        #     })
-        #     doc.start_tag('boneassignments', {})
-        #     boneOutputEnableFromName = {}
-        #     boneIndexFromName = {}
-        #     for bone in arm.pose.bones:
-        #         boneOutputEnableFromName[bone.name] = True
-        #     boneIndex = 0
-        #     for bone in arm.pose.bones:
-        #         boneIndexFromName[bone.name] = boneIndex
-        #         if boneOutputEnableFromName[bone.name]:
-        #             boneIndex += 1
-        #     badverts = 0
-        #     for vidx, v in enumerate(_remap_verts_):
-        #         check = 0
-        #         for vgroup in v.groups:
-        #             if vgroup.weight > 0.01:
-        #                 groupIndex = vgroup.group
-        #                 if groupIndex < len(copy.vertex_groups):
-        #                     vg = copy.vertex_groups[groupIndex]
-        #                     if vg.name in boneIndexFromName:  # allows other vertex groups, not just armature vertex groups
-        #                         bnidx = boneIndexFromName[vg.name]  # find_bone_index(copy,arm,vgroup.group)
-        #                         doc.leaf_tag('vertexboneassignment', {
-        #                             'vertexindex': str(vidx),
-        #                             'boneindex': str(bnidx),
-        #                             'weight': '%6f' % vgroup.weight
-        #                         })
-        #                         check += 1
-        #                 else:
-        #                     print('WARNING: object vertex groups not in sync with armature', copy, arm, groupIndex)
-        #         if check > 4:
-        #             badverts += 1
-        #             print(
-        #                 'WARNING: vertex %s is in more than 4 vertex groups (bone weights)\n(this maybe Ogre incompatible)' % vidx)
-        #     if badverts:
-        #         Report.warnings.append(
-        #             '%s has %s vertices weighted to too many bones (Ogre limits a vertex to 4 bones)\n[try increaseing the Trim-Weights threshold option]' % (
-        #             mesh.name, badverts))
-        #     doc.end_tag('boneassignments')
-        #
-        # # Updated June3 2011 - shape animation works
-        # if ob.data.shape_keys and len(ob.data.shape_keys.key_blocks):
-        #     print('      - Writing shape keys')
-        #
-        #     doc.start_tag('poses', {})
-        #     for sidx, skey in enumerate(ob.data.shape_keys.key_blocks):
-        #         if sidx == 0: continue
-        #         if len(skey.data) != len(mesh.vertices):
-        #             failure = 'FAILED to save shape animation - you can not use a modifier that changes the vertex count! '
-        #             failure += '[ mesh : %s ]' % mesh.name
-        #             Report.warnings.append(failure)
-        #             print(failure)
-        #             break
-        #
-        #         doc.start_tag('pose', {
-        #             'name': skey.name,
-        #             # If target is 'mesh', no index needed, if target is submesh then submesh identified by 'index'
-        #             # 'index' : str(sidx-1),
-        #             # 'index' : '0',
-        #             'target': 'mesh'
-        #         })
-        #
-        #         for vidx, v in enumerate(_remap_verts_):
-        #             pv = skey.data[v.index]
-        #             x, y, z = swap(pv.co - v.co)
-        #             # for i,p in enumerate( skey.data ):
-        #             # x,y,z = p.co - ob.data.vertices[i].co
-        #             # x,y,z = swap( ob.data.vertices[i].co - p.co )
-        #             # if x==.0 and y==.0 and z==.0: continue        # the older exporter optimized this way, is it safe?
-        #             doc.leaf_tag('poseoffset', {
-        #                 'x': '%6f' % x,
-        #                 'y': '%6f' % y,
-        #                 'z': '%6f' % z,
-        #                 'index': str(vidx)  # is this required?
-        #             })
-        #         doc.end_tag('pose')
-        #     doc.end_tag('poses')
-        #
-        #     if logging:
-        #         print('        Done at', timer_diff_str(start), "seconds")
-        #
-        #     if ob.data.shape_keys.animation_data and len(ob.data.shape_keys.animation_data.nla_tracks):
-        #         print('      - Writing shape animations')
-        #         doc.start_tag('animations', {})
-        #         _fps = float(bpy.context.scene.render.fps)
-        #         for nla in ob.data.shape_keys.animation_data.nla_tracks:
-        #             for idx, strip in enumerate(nla.strips):
-        #                 doc.start_tag('animation', {
-        #                     'name': strip.name,
-        #                     'length': str((strip.frame_end - strip.frame_start) / _fps)
-        #                 })
-        #                 doc.start_tag('tracks', {})
-        #                 doc.start_tag('track', {
-        #                     'type': 'pose',
-        #                     'target': 'mesh'
-        #                     # If target is 'mesh', no index needed, if target is submesh then submesh identified by 'index'
-        #                     # 'index' : str(idx)
-        #                     # 'index' : '0'
-        #                 })
-        #                 doc.start_tag('keyframes', {})
-        #                 for frame in range(int(strip.frame_start), int(strip.frame_end) + 1,
-        #                                    bpy.context.scene.frame_step):  # thanks to Vesa
-        #                     bpy.context.scene.frame_set(frame)
-        #                     doc.start_tag('keyframe', {
-        #                         'time': str((frame - strip.frame_start) / _fps)
-        #                     })
-        #                     for sidx, skey in enumerate(ob.data.shape_keys.key_blocks):
-        #                         if sidx == 0: continue
-        #                         doc.leaf_tag('poseref', {
-        #                             'poseindex': str(sidx - 1),
-        #                             'influence': str(skey.value)
-        #                         })
-        #                     doc.end_tag('keyframe')
-        #                 doc.end_tag('keyframes')
-        #                 doc.end_tag('track')
-        #                 doc.end_tag('tracks')
-        #                 doc.end_tag('animation')
-        #         doc.end_tag('animations')
-        #         print('        Done at', timer_diff_str(start), "seconds")
+        if arm:
+            #If there's an armature there can only be a single object.
+            copy = submeshes[0]['copy']
+            #Use the original unbaked mesh
+            mesh = submeshes[0]['ob'].data
+            doc.leaf_tag('skeletonlink', {
+                'name': '%s.skeleton' % obj_name
+            })
+            doc.start_tag('boneassignments', {})
+            boneOutputEnableFromName = {}
+            boneIndexFromName = {}
+            for bone in arm.pose.bones:
+                boneOutputEnableFromName[bone.name] = True
+            boneIndex = 0
+            for bone in arm.pose.bones:
+                boneIndexFromName[bone.name] = boneIndex
+                if boneOutputEnableFromName[bone.name]:
+                    boneIndex += 1
+            badverts = 0
+            for vidx, v in enumerate(_remap_verts_):
+                check = 0
+                for vgroup in v.groups:
+                    if vgroup.weight > 0.01:
+                        groupIndex = vgroup.group
+                        if groupIndex < len(copy.vertex_groups):
+                            vg = copy.vertex_groups[groupIndex]
+                            if vg.name in boneIndexFromName:  # allows other vertex groups, not just armature vertex groups
+                                bnidx = boneIndexFromName[vg.name]  # find_bone_index(copy,arm,vgroup.group)
+                                doc.leaf_tag('vertexboneassignment', {
+                                    'vertexindex': str(vidx),
+                                    'boneindex': str(bnidx),
+                                    'weight': '%6f' % vgroup.weight
+                                })
+                                check += 1
+                        else:
+                            print('WARNING: object vertex groups not in sync with armature', copy, arm, groupIndex)
+                if check > 4:
+                    badverts += 1
+                    print(
+                        'WARNING: vertex %s is in more than 4 vertex groups (bone weights)\n(this maybe Ogre incompatible)' % vidx)
+            if badverts:
+                Report.warnings.append(
+                    '%s has %s vertices weighted to too many bones (Ogre limits a vertex to 4 bones)\n[try increaseing the Trim-Weights threshold option]' % (
+                    mesh.name, badverts))
+            doc.end_tag('boneassignments')
+
+            # Updated June3 2011 - shape animation works
+            if mesh.shape_keys and len(mesh.shape_keys.key_blocks):
+                print('      - Writing shape keys')
+
+                doc.start_tag('poses', {})
+                for sidx, skey in enumerate(mesh.shape_keys.key_blocks):
+                    if sidx == 0: continue
+                    if len(skey.data) != len(mesh.vertices):
+                        failure = 'FAILED to save shape animation - you can not use a modifier that changes the vertex count! '
+                        failure += '[ mesh : %s ]' % mesh.name
+                        Report.warnings.append(failure)
+                        print(failure)
+                        break
+
+                    doc.start_tag('pose', {
+                        'name': skey.name,
+                        # If target is 'mesh', no index needed, if target is submesh then submesh identified by 'index'
+                        # 'index' : str(sidx-1),
+                        # 'index' : '0',
+                        'target': 'mesh'
+                    })
+
+                    for vidx, v in enumerate(_remap_verts_):
+                        pv = skey.data[v.index]
+                        x, y, z = swap(pv.co - v.co)
+                        # for i,p in enumerate( skey.data ):
+                        # x,y,z = p.co - ob.data.vertices[i].co
+                        # x,y,z = swap( ob.data.vertices[i].co - p.co )
+                        # if x==.0 and y==.0 and z==.0: continue        # the older exporter optimized this way, is it safe?
+                        doc.leaf_tag('poseoffset', {
+                            'x': '%6f' % x,
+                            'y': '%6f' % y,
+                            'z': '%6f' % z,
+                            'index': str(vidx)  # is this required?
+                        })
+                    doc.end_tag('pose')
+                doc.end_tag('poses')
+
+                if logging:
+                    print('        Done at', timer_diff_str(start), "seconds")
+
+                if mesh.shape_keys.animation_data and len(mesh.shape_keys.animation_data.nla_tracks):
+                    print('      - Writing shape animations')
+                    doc.start_tag('animations', {})
+                    _fps = float(bpy.context.scene.render.fps)
+                    for nla in mesh.shape_keys.animation_data.nla_tracks:
+                        for idx, strip in enumerate(nla.strips):
+                            doc.start_tag('animation', {
+                                'name': strip.name,
+                                'length': str((strip.frame_end - strip.frame_start) / _fps)
+                            })
+                            doc.start_tag('tracks', {})
+                            doc.start_tag('track', {
+                                'type': 'pose',
+                                'target': 'mesh'
+                                # If target is 'mesh', no index needed, if target is submesh then submesh identified by 'index'
+                                # 'index' : str(idx)
+                                # 'index' : '0'
+                            })
+                            doc.start_tag('keyframes', {})
+                            for frame in range(int(strip.frame_start), int(strip.frame_end) + 1,
+                                               bpy.context.scene.frame_step):  # thanks to Vesa
+                                bpy.context.scene.frame_set(frame)
+                                doc.start_tag('keyframe', {
+                                    'time': str((frame - strip.frame_start) / _fps)
+                                })
+                                for sidx, skey in enumerate(mesh.shape_keys.key_blocks):
+                                    if sidx == 0: continue
+                                    doc.leaf_tag('poseref', {
+                                        'poseindex': str(sidx - 1),
+                                        'influence': str(skey.value)
+                                    })
+                                doc.end_tag('keyframe')
+                            doc.end_tag('keyframes')
+                            doc.end_tag('track')
+                            doc.end_tag('tracks')
+                            doc.end_tag('animation')
+                    doc.end_tag('animations')
+                    print('        Done at', timer_diff_str(start), "seconds")
 
         ## Clean up and save
         for submesh in submeshes:
@@ -952,7 +960,8 @@ def append_triangle_in_vertex_group(mesh, obj, vertex_groups, ogre_indices, blen
         for g in v.groups:
             if g.group >= len(obj.vertex_groups):
                 return
-            group = obj.vertex_groups.get(g.group)
+            group = obj.vertex_groups[g.group]
+            #Support for Ogre specific vertex animation
             if not group.name.startswith("ogre.vertex.group."):
                 return
             names.add(group.name)
@@ -1176,9 +1185,9 @@ class Exporter:
             xml_path, skeleton_path = self.export_to_xml(animation)
         except Exception as e:
             self.operator.report({'ERROR'},
-                                 "Error when exporting mesh. Make sure you have the Ogre exporter installed. Message: " + str(
-                                     e))
-            traceback.print_exc()
+                                 "Error when exporting mesh: " + str(e))
+            if self.DEBUG:
+                traceback.print_exc()
             return
 
         skeleton_path = None
@@ -1513,13 +1522,16 @@ class PANEL_OT_wf_ogre_export(bpy.types.Panel):
         row = layout.row()
         row.operator("mesh.wf_export_ogre_animated", icon='BONE_DATA')
 
-wf_active_object = bpy.context.active_object
+wf_active_object = None
+
 @bpy.app.handlers.persistent
 def wf_mesh_name_handler(dummy):
     global wf_active_object
+
     if wf_active_object != bpy.context.active_object:
         wf_active_object = bpy.context.active_object
-        bpy.context.scene.wf_mesh_name = wf_active_object.name
+        if wf_active_object:
+            bpy.context.scene.wf_mesh_name = wf_active_object.name
 
 # ----------------------------------------------------------------------------
 # --------------------------- REGISTRATION -----------------------------------
