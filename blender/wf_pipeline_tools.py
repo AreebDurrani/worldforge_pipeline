@@ -435,13 +435,7 @@ def dot_mesh(target_file, skeleton_path):
 
             submesh = {}
 
-            # blender per default does not calculate these. when querying the quads/tris
-            # of the object blender would crash if calc_tessface was not updated
-            ob.data.update(calc_tessface=True)
-
             Report.meshes.append(obj_name)
-            Report.faces += len(ob.data.tessfaces)
-            Report.orig_vertices += len(ob.data.vertices)
 
             #Copy object so we can alter it
             copy = ob.copy()
@@ -470,6 +464,12 @@ def dot_mesh(target_file, skeleton_path):
             mesh = copy.to_mesh(bpy.context.scene, True, "PREVIEW")  # collapse
 
             mesh.calc_tangents()
+            # blender per default does not calculate these. when querying the quads/tris
+            # of the object blender would crash if calc_tessface was not updated
+            mesh.update(calc_tessface=True)
+
+            Report.faces += len(mesh.tessfaces)
+            Report.orig_vertices += len(mesh.vertices)
 
             submesh['mesh'] = mesh
             submesh['ob'] = ob
@@ -542,7 +542,7 @@ def dot_mesh(target_file, skeleton_path):
             if not materials:
                 materials.append(('_missing_material_', True, None))
             material_faces = []
-            for matidx, mat in enumerate(materials):
+            for _, _ in enumerate(materials):
                 material_faces.append([])
 
             # Textures
@@ -1506,11 +1506,17 @@ class Exporter:
         # First check if there's a command on the path
         self.converter_path = shutil.which("OgreXMLConverter")
         self.meshmagick_path = shutil.which("meshmagick")
+        self.upgrader_path = shutil.which("OgreMeshUpgrader")
 
         if self.converter_path:
             self.operator.report({'INFO'}, "Found Ogre XML converter at " + self.converter_path)
         else:
-            self.operator.report({'INFO'}, "Could not find Ogre XML converter.")
+            self.operator.report({'WARNING'}, "Could not find Ogre XML converter.")
+
+        if self.upgrader_path:
+            self.operator.report({'INFO'}, "Found Ogre Mesh upgrader at " + self.upgrader_path)
+        else:
+            self.operator.report({'WARNING'}, "Could not find Ogre Mesh upgrader.")
 
         # On Windows we can provide the tools ourselves, but on Linux they have to be provided by the system (issues with shared libraries and all)
         # We'll let the provided tools override the ones installed system wide, just to avoid issues. We could expand this with the ability for the user to specify the path.
@@ -1521,6 +1527,8 @@ class Exporter:
                 _id = tkn.index('assets')
                 self.converter_path = os.path.join(tkn[0:_id], 'resources', 'asset_manager', 'bin', 'nt',
                                                    'OgreCommandLineTools_1.7.2', 'OgreXMLConverter.exe')
+                self.upgrader_path = os.path.join(tkn[0:_id], 'resources', 'asset_manager', 'bin', 'nt',
+                                                   'OgreCommandLineTools_1.7.2', 'OgreMeshUpgrader.exe')
 
     def _convert_xml_to_mesh(self, ogre_xml_path, final_asset_name):
 
@@ -1534,11 +1542,13 @@ class Exporter:
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-        result = subprocess.call([self.converter_path, ogre_xml_path, dest_mesh_path])
+        result = subprocess.call([self.converter_path, "-log", self.temp_directory + "/OgreXMLConverter.log",
+                                  ogre_xml_path, dest_mesh_path])
         if result == 0:
             self.operator.report({'INFO'}, "Wrote mesh file " + dest_mesh_path)
         else:
             self.operator.report({'ERROR'}, "Error when writing mesh file " + dest_mesh_path)
+
 
         return dest_mesh_path
 
@@ -1640,6 +1650,15 @@ class Exporter:
 
 
         mesh_path = self._convert_xml_to_mesh(xml_path, mesh_name + ".mesh")
+
+        if self.upgrader_path:
+            # Also run mesh upgrader to optimize buffers
+            result = subprocess.call([self.upgrader_path, mesh_path])
+            if result == 0:
+                self.operator.report({'INFO'}, "Upgraded mesh file " + mesh_path)
+            else:
+                self.operator.report({'ERROR'}, "Error when upgrading mesh file " + mesh_path)
+
         # see if we have meshmagick available and if so call it
         if mesh_path and self.meshmagick_path:
             # Check if mesh optimization is turned on
