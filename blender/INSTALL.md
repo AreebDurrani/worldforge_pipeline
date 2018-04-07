@@ -1,13 +1,11 @@
-WorldForge Pipeline
-===================
+# Worldforge Blender Plugin
 
-INSTALL:
-	Install by going to addons
-		--> Crt-Alt-U
-		--> Click on "Install From File"
-			--> Select wf_pipeline_tools.py for the tools
+Install by selecting "User Preferences" and going to "Addons".
 
-	New WorldForge Tab will be created. 
-		--> Enable Addons
+Either press "Crt-Alt-U".
 
-	Click on "Save User Settings"
+Or click on ```Install From File```.
+    
+Then select ```wf_pipeline_tools.py``` for the tools.
+
+Click on "Save User Settings".
