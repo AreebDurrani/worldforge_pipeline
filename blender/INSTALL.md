@@ -1,9 +1,6 @@
 WorldForge Pipeline
 ===================
 
-REQUIREMENTS:
-	Ogre exporter http://code.google.com/p/blender2ogre
-
 INSTALL:
 	Install by going to addons
 		--> Crt-Alt-U
