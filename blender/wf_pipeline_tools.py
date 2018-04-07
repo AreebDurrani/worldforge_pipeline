@@ -94,39 +94,42 @@ class OgreMaterialManager:
         # bpy.path.display_name_from_filepath(bpy.data.filepath)
         return seps[-1]
 
-    def open_ogre_materials(self, context):
+    def open_ogre_materials(self, context, operator):
         '''opens ogre.material based on the texture file path'''
-        sel = bpy.context.selected_objects
-        tmp_txt = bpy.data.texts.new('{tmp}')  # hacky shit
 
-        for ob in sel:
-            for slot in ob.material_slots:
-                mat = slot.material
+        space = None
+        for area in bpy.context.screen.areas:
+            if area.type == 'TEXT_EDITOR':
+                space = area.spaces[0]
+        if not space:
+            operator.report({'ERROR'}, "You must have a text editor open in one of the Blender areas.")
+            return
 
-                if mat.active_texture == None:
-                    continue
+        if context.active_object.active_material:
+            mat = context.active_object.active_material
 
-                image_path = mat.active_texture.image.filepath
-                ogre_mat_file = bpy.path.abspath(image_path)[:-5] + 'ogre.material'
-                if os.path.isfile(ogre_mat_file):
-                    txt_datablock = bpy.data.texts
+            for texture_slot in mat.texture_slots:
+                if texture_slot and texture_slot.texture:
+                    if type(texture_slot.texture) is bpy.types.ImageTexture and texture_slot.texture.image:
+                        filepath = texture_slot.texture.image.filepath
+                        if (filepath.endswith('D.png')):
+                            _, filepath = filepath.split('//', 1)
+                            if (filepath[0] is not "/"):
+                                filepath = os.path.abspath(os.path.dirname(bpy.data.filepath) + os.sep + filepath)
+                            path_tokens = filepath.split(os.sep)
+                            ogre_mat_file = os.sep.join(path_tokens[:-1]) + os.sep + "ogre.material"
+                            if os.path.isfile(ogre_mat_file):
+                                operator.report({'INFO'}, "Opening '" + ogre_mat_file + "'")
+                                text = bpy.data.texts.load(ogre_mat_file)
+                                space.text = text
+                            else:
+                                operator.report({'ERROR'},
+                                                "No file found at '" + ogre_mat_file + "'.")
 
-                    filepaths = [itm.filepath for itm in bpy.data.texts]
+                            return
+            operator.report({'ERROR'}, "Could not deduce ogre material from textures.")
 
-                    for dat in filepaths:
-                        exists = ogre_mat_file in filepaths
-                        if exists == False:
-                            bpy.ops.text.open(filepath=ogre_mat_file)
 
-                        if self.DEBUG == True:
-                            print('---- debug statements ----')
-                            print(image_path)
-                            print(ogre_mat_file)
-                            print(filepaths)
-                            print(exists)
-        bpy.data.texts.remove(tmp_txt)
-
-    #
     def get_ogre_mat_name(self, relative_path):
         '''retrieves ogre.material based on the current image'''
         # ogre_mat_file = relative_path[:-5] + 'ogre.material'
@@ -1755,12 +1758,12 @@ class OBJECT_OT_wf_open_ogre_materials(Operator, AddObjectHelper):
     @classmethod
     def poll(cls, context):
         obj = context.active_object
-        return obj is not None
+        return obj is not None and obj.active_material
 
     def execute(self, context):
         OMM = OgreMaterialManager()
         OMM.DEBUG = False
-        OMM.open_ogre_materials(context)
+        OMM.open_ogre_materials(context, self)
         return {'FINISHED'}
 
 
@@ -1947,11 +1950,13 @@ class PANEL_OT_wf_mat_panel(bpy.types.Panel):
         # layout.qlabel(text="Material Utilities")
         row = layout.row(align=True)
         row.operator('mesh.wf_fix_materials', text='Fix Materials', icon='SCULPTMODE_HLT')
-        row.operator('scene.wf_open_ogre_materials', text='Ogre Mats', icon='IMASEL')
-        # col = layout.column(align=True)
         row = layout.row(align=True)
-        row.operator('view3d.material_to_texface', text='Mat to Tex', icon='MATERIAL_DATA')
-        row.operator('view3d.texface_to_material', text='Tex to Mat', icon='FACESEL_HLT')
+        row.operator('scene.wf_open_ogre_materials', text='Show Material', icon='IMASEL')
+        # col = layout.column(align=True)
+
+        #row = layout.row(align=True)
+        #row.operator('view3d.material_to_texface', text='Mat to Tex', icon='MATERIAL_DATA')
+        #row.operator('view3d.texface_to_material', text='Tex to Mat', icon='FACESEL_HLT')
 
 
 class PANEL_OT_wf_rigging_panel(bpy.types.Panel):
