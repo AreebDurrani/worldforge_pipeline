@@ -16,9 +16,9 @@
 # License along with this library; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
-'''
+"""
 Tool depends on Blender to Ogre exporter http://code.google.com/p/blender2ogre
-'''
+"""
 import math
 
 bl_info = {
@@ -76,7 +76,7 @@ class RigAnimationUtilities:
 
 
 class OgreMaterialManager:
-    '''Worldforge material management utilites'''
+    """Worldforge material management utilites"""
 
     def __init__(self):
         self.DEBUG = False
@@ -95,7 +95,7 @@ class OgreMaterialManager:
         return seps[-1]
 
     def open_ogre_materials(self, context, operator):
-        '''opens ogre.material based on the texture file path'''
+        """opens ogre.material based on the texture file path"""
 
         space = None
         for area in bpy.context.screen.areas:
@@ -131,7 +131,7 @@ class OgreMaterialManager:
 
 
     def get_ogre_mat_name(self, relative_path):
-        '''retrieves ogre.material based on the current image'''
+        """retrieves ogre.material based on the current image"""
         # ogre_mat_file = relative_path[:-5] + 'ogre.material'
         ogre_mat_file = bpy.path.abspath(relative_path)[:-5] + 'ogre.material'
         # ogre_mat_file = testPath[:-5] + 'ogre.material'
@@ -146,21 +146,21 @@ class OgreMaterialManager:
         return matNames
 
     def write_to_text_datablock(self, b_list):
-        '''writes out the list to a ogre mat textblock'''
+        """writes out the list to a ogre mat textblock"""
         ogre_tdb = self.get_text_datablock()
         ogre_tdb.write('--------------\n')
         for itm in b_list:
             ogre_tdb.write('%s \n' % itm)
 
     def get_text_datablock(self, tdb='ogre_mats'):
-        '''gets/creates a text data block (tdb)'''
+        """gets/creates a text data block (tdb)"""
         txt_datablock = bpy.data.texts.find(tdb)
         if txt_datablock == -1:
             return bpy.data.texts.new(tdb)
         return bpy.data.texts[tdb]
 
     def wf_fix_materials(self, context):
-        '''tries to fix material names based on ogre.material files'''
+        """tries to fix material names based on ogre.material files"""
         sel = bpy.context.selected_objects
         for ob in sel:
             for slot in ob.material_slots:
@@ -621,12 +621,12 @@ def dot_mesh(target_file, skeleton_path):
                         # Bitangent
                         btx, bty, btz = swap(l.bitangent)
 
-                        ''' Check if we already exported that vertex with same normal, do not export in that case,
+                        """ Check if we already exported that vertex with same normal, do not export in that case,
                             (flat shading in blender seems to work with face normals, so we copy each flat face'
                             vertices, if this vertex with same normals was already exported,
                             todo: maybe not best solution, check other ways (let blender do all the work, or only
                             support smooth shading, what about seems, smoothing groups, materials, ...)
-                        '''
+                        """
                         vert = VertexNoPos(numverts, nx, ny, nz, r, g, b, ra, vert_uvs)
                         alreadyExported = False
                         if idx in shared_vertices:
@@ -992,7 +992,7 @@ class VertexNoPos(object):
         self.ra = ra
         self.vert_uvs = vert_uvs
 
-    '''does not compare ogre_vidx (and position at the moment) [ no need to compare position ]'''
+    """does not compare ogre_vidx (and position at the moment) [ no need to compare position ]"""
 
     def __eq__(self, o):
         if not math.isclose(self.nx, o.nx): return False
@@ -1563,8 +1563,8 @@ class Exporter:
         return skeleton_xml_path
 
     def export_to_mesh_xml(self):
-        '''Uses the OGRE exporter to create a mes.xml file.
-        Returns the path to the exported xml file.'''
+        """Uses the OGRE exporter to create a mes.xml file.
+        Returns the path to the exported xml file."""
 
         skeleton_path = None
         armature = bpy.context.active_object.find_armature()
@@ -1589,7 +1589,7 @@ class Exporter:
         return ogre_xml_path
 
     def adjust_ogre_xml_skeleton(self, ogre_xml_file, skeleton_name=None):
-        '''adjusts the name of the skeleton name of a given ogre_xml_file'''
+        """adjusts the name of the skeleton name of a given ogre_xml_file"""
         with open(ogre_xml_file, 'r') as f:
             lines = f.readlines()
             f.close()
@@ -1605,7 +1605,7 @@ class Exporter:
             f.close()
 
     def find_file_recursively(self, relative_path_tokens, file_name):
-        '''Searches for a file recursively upwards, starting from a directory and walking upwards in the hierarchy until the "assets" directory is reached.'''
+        """Searches for a file recursively upwards, starting from a directory and walking upwards in the hierarchy until the "assets" directory is reached."""
         path = os.path.join(self.assets_root, (os.sep).join(relative_path_tokens))
 
         for root, _, filenames in os.walk(path):
@@ -1640,7 +1640,7 @@ class Exporter:
             return armature_relative_path + "/" + armature_file_name
 
     def export_to_mesh(self, mesh_name):
-        '''Exports the asset to a .mesh file'''
+        """Exports the asset to a .mesh file"""
 
         try:
             xml_path = self.export_to_mesh_xml()
@@ -1674,7 +1674,7 @@ class Exporter:
 
 
     def export_to_skeleton(self):
-        '''Exports the asset to a .skeleton file'''
+        """Exports the asset to a .skeleton file"""
 
         try:
             xml_path = self.export_to_skeleton_xml()
@@ -1697,7 +1697,7 @@ class Exporter:
 # -------------------------- COMMAND EXEC ------------------------------------
 # ----------------------------------------------------------------------------
 class OBJECT_OT_wfoe_animated(Operator, AddObjectHelper):
-    '''Export an Ogre Skeleton armature file'''
+    """Export an Ogre Skeleton armature file"""
     bl_idname = 'mesh.wf_export_ogre_animated'
     bl_label = 'Export Skeleton'
     bl_category = 'WorldForge'
@@ -1714,7 +1714,7 @@ class OBJECT_OT_wfoe_animated(Operator, AddObjectHelper):
 
 
 class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
-    '''Export an Ogre Mesh file.'''
+    """Export an Ogre Mesh file."""
     bl_idname = 'mesh.wf_export_ogre_static'
     bl_label = 'Export Mesh'
     bl_category = 'WorldForge'
@@ -1731,7 +1731,7 @@ class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
 
 
 class OBJECT_OT_wf_fix_materials(Operator, AddObjectHelper):
-    '''Gets meshes ready for woldforge export'''
+    """Gets meshes ready for woldforge export"""
     bl_idname = 'mesh.wf_fix_materials'
     bl_label = 'WF Mat Fixer'
     bl_category = 'WorldForge'
@@ -1749,7 +1749,7 @@ class OBJECT_OT_wf_fix_materials(Operator, AddObjectHelper):
 
 
 class OBJECT_OT_wf_open_ogre_materials(Operator, AddObjectHelper):
-    '''open ogre materials based on the texture filename '''
+    """open ogre materials based on the texture filename """
     bl_idname = 'scene.wf_open_ogre_materials'
     bl_label = 'WF Open Ogre Materials'
     bl_category = 'WorldForge'
@@ -1768,7 +1768,7 @@ class OBJECT_OT_wf_open_ogre_materials(Operator, AddObjectHelper):
 
 
 class OBJECT_OT_clean_vertex_groups(Operator, AddObjectHelper):
-    '''Cleans vertex groups on select objects base on current armatures deformable bones'''
+    """Cleans vertex groups on select objects base on current armatures deformable bones"""
     bl_idname = 'object.clean_vertex_groups'
     bl_label = 'Clean Vertex Groups'
     bl_category = 'WorldForge'
@@ -1905,7 +1905,7 @@ bpy.types.Scene.Rig = bpy.props.StringProperty()
 
 
 def get_armature(name):
-    '''gets the name of the current armature '''
+    """gets the name of the current armature """
     for ob in bpy.data.objects:
         if ob.name == name:
             return ob
