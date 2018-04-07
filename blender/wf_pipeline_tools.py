@@ -1,4 +1,4 @@
-# Copyright (C) 2010 Brett Hartshorn
+# Copyright (C) 2010 Blender2Ogre addon authors
 # Copyright (C) 2014 Anisim Kalugin
 # Copyright (C) 2014 Erik Ogenvik
 #
@@ -16,9 +16,8 @@
 # License along with this library; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
-"""
-Tool depends on Blender to Ogre exporter http://code.google.com/p/blender2ogre
-"""
+# Code for exporting OGRE3D Mesh and Skeleton is based on code found at https://github.com/OGRECave/blender2ogre
+
 import math
 
 bl_info = {
@@ -34,11 +33,9 @@ bl_info = {
 
 import bpy, shutil, subprocess, tempfile, fnmatch, traceback
 from bpy.types import Operator
-# from bpy.props import FloatVectorProperty
 from bpy_extras.object_utils import AddObjectHelper
 
 
-# from mathutils import Vector
 class RigAnimationUtilities:
     def __init__(self):
         self.DEBUG = False
@@ -196,7 +193,7 @@ class OgreMaterialManager:
 
 from xml.sax.saxutils import quoteattr
 
-
+#Based on code from https://github.com/OGRECave/blender2ogre
 class SimpleSaxWriter():
     def __init__(self, output, root_tag, root_attrs):
         self.output = output
@@ -238,6 +235,7 @@ class SimpleSaxWriter():
         self.end_tag(self.root_tag)
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 class RElement(object):
     def appendChild(self, child):
         self.childNodes.append(child)
@@ -271,6 +269,7 @@ class RElement(object):
             lines.append(('  ' * indent) + '</%s>' % self.tagName)
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 class RDocument(object):
     def __init__(self):
         self.documentElement = None
@@ -299,6 +298,7 @@ import os, time, sys, logging
 import mathutils
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 class ReportSingleton(object):
     def __init__(self):
         self.reset()
@@ -391,6 +391,7 @@ def timer_diff_str(start):
     return "%0.2f" % (time.time() - start)
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 def dot_mesh(target_file, skeleton_path):
     """
     export the vertices of an object into a .mesh file
@@ -958,6 +959,7 @@ def dot_mesh(target_file, skeleton_path):
 
     Report.report()
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 def append_triangle_in_vertex_group(mesh, obj, vertex_groups, ogre_indices, blender_indices):
     vertices = [mesh.vertices[i] for i in blender_indices]
     names = set()
@@ -980,6 +982,7 @@ def append_triangle_in_vertex_group(mesh, obj, vertex_groups, ogre_indices, blen
         vertex_groups[name].append(ogre_indices)
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 class VertexNoPos(object):
     def __init__(self, ogre_vidx, nx, ny, nz, r, g, b, ra, vert_uvs):
         self.ogre_vidx = ogre_vidx
@@ -1013,6 +1016,7 @@ class VertexNoPos(object):
         return 'vertex(%d)' % self.ogre_vidx
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 def extract_vertex_color(vcolors, vcolors_alpha, face, index):
     r = 1.0
     g = 1.0
@@ -1030,6 +1034,7 @@ def extract_vertex_color(vcolors, vcolors_alpha, face, index):
     return export, (r, g, b, ra)
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 def dot_skeleton(target_file, ob):
 
     Report.reset()
@@ -1044,6 +1049,7 @@ def dot_skeleton(target_file, ob):
     return name + '.skeleton'
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 class Bone(object):
 
     def __init__(self, rbone, pbone, skeleton):
@@ -1146,6 +1152,7 @@ class Bone(object):
             child.compute_rest()
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 class Keyframe:
     def __init__(self, time, pos, rot, scale):
         self.time = time
@@ -1168,6 +1175,7 @@ class Keyframe:
         return scaleDiff.length < 0.0001
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 # Bone_Track
 # Encapsulates all of the key information for an individual bone within a single animation,
 # and stores that information as XML.
@@ -1251,6 +1259,7 @@ class Bone_Track:
 
 
 # Skeleton
+#Based on code from https://github.com/OGRECave/blender2ogre
 def findArmature(ob):
     arm = ob
     # if this armature has no animation,
@@ -1263,6 +1272,7 @@ def findArmature(ob):
     return arm
 
 
+#Based on code from https://github.com/OGRECave/blender2ogre
 class Skeleton(object):
     def get_bone(self, name):
         for b in self.bones:
