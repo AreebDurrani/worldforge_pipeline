@@ -1534,14 +1534,13 @@ class Exporter:
         # On Windows we can provide the tools ourselves, but on Linux they have to be provided by the system (issues with shared libraries and all)
         # We'll let the provided tools override the ones installed system wide, just to avoid issues. We could expand this with the ability for the user to specify the path.
         if os.name == 'nt':
-            _id = None
             tkn = os.path.abspath(os.path.dirname(bpy.data.filepath))
             if 'assets' in tkn:
                 _id = tkn.index('assets')
                 self.converter_path = os.path.join(tkn[0:_id], 'resources', 'asset_manager', 'bin', 'nt',
-                                                   'OgreCommandLineTools_1.7.2', 'OgreXMLConverter.exe')
+                                                   'OgreCommandLineTools_1.10.11', 'OgreXMLConverter.exe')
                 self.upgrader_path = os.path.join(tkn[0:_id], 'resources', 'asset_manager', 'bin', 'nt',
-                                                   'OgreCommandLineTools_1.7.2', 'OgreMeshUpgrader.exe')
+                                                   'OgreCommandLineTools_1.10.11', 'OgreMeshUpgrader.exe')
 
     def _convert_xml_to_mesh(self, ogre_xml_path, final_asset_name):
 
