@@ -804,6 +804,7 @@ def dot_mesh(target_file, skeleton_path):
             doc.leaf_tag('skeletonlink', {
                 'name': skeleton_path
             })
+            print("Path to skeleton: " + skeleton_path)
             doc.start_tag('boneassignments', {})
             boneOutputEnableFromName = {}
             boneIndexFromName = {}
@@ -951,9 +952,6 @@ def dot_mesh(target_file, skeleton_path):
 
     replaceInplace(target_file, '__TO_BE_REPLACED_VERTEX_COUNT__' + '"', str(numverts) + '"')  # + ' ' * (ls - lr))
     del (replaceInplace)
-
-    # note that exporting the skeleton does not happen here anymore
-    # it moved to the function dot_skeleton in its own module
 
     logging.info('      - Created .mesh in total time %s seconds', timer_diff_str(start))
 
@@ -1281,8 +1279,6 @@ class Skeleton(object):
         return None
 
     def __init__(self, ob):
-        if ob.location.x != 0 or ob.location.y != 0 or ob.location.z != 0:
-            Report.warnings.append('ERROR: Mesh (%s): is offset from Armature - zero transform is required' % ob.name)
 
         self.object = ob
         self.bones = []
@@ -1391,6 +1387,13 @@ class Skeleton(object):
             x *= self.object.scale.x
             y *= self.object.scale.y
             z *= self.object.scale.z
+
+            #Only translate root bones
+            if not bone.parent:
+                swapped_loc = swap(self.object.location)
+                x += swapped_loc.x
+                y += swapped_loc.y
+                z += swapped_loc.z
 
             pos.setAttribute('x', '%6f' % x)
             pos.setAttribute('y', '%6f' % y)
@@ -2014,7 +2017,7 @@ class PANEL_OT_wf_ogre_export(bpy.types.Panel):
 wf_active_object = None
 
 @bpy.app.handlers.persistent
-def wf_mesh_name_handler(dummy):
+def wf_mesh_name_handler(_):
     global wf_active_object
 
     if wf_active_object != bpy.context.active_object:
