@@ -19,21 +19,24 @@
 # Code for exporting OGRE3D Mesh and Skeleton is based on code found at https://github.com/OGRECave/blender2ogre
 
 import math
+import bpy, shutil, subprocess, tempfile, fnmatch, traceback
+from bpy.types import Operator
+from bpy_extras.object_utils import AddObjectHelper
+import os, time, sys, logging
+import mathutils
+
+from xml.sax.saxutils import quoteattr
 
 bl_info = {
     'name': 'Pipeline Tools',
     'category': 'WorldForge',
     'author': 'anisimkalugin.com, erik@ogenvik.org',
-    'version': (0, 0, 1),
+    'version': (0, 1, 0),
     'blender': (2, 71, 0),
     'description': 'Worldforge Pipeline Tools',
     'warning': '',
     'wiki_url': ''
 }
-
-import bpy, shutil, subprocess, tempfile, fnmatch, traceback
-from bpy.types import Operator
-from bpy_extras.object_utils import AddObjectHelper
 
 
 class RigAnimationUtilities:
@@ -86,7 +89,7 @@ class OgreMaterialManager:
             itm = tkns[i]
             if not itm in bad_names_l:
                 seps.append(itm)
-        if seps == []:
+        if not seps:
             return 'blender file name'
         # bpy.path.display_name_from_filepath(bpy.data.filepath)
         return seps[-1]
@@ -126,7 +129,6 @@ class OgreMaterialManager:
                             return
             operator.report({'ERROR'}, "Could not deduce ogre material from textures.")
 
-
     def get_ogre_mat_name(self, relative_path):
         """retrieves ogre.material based on the current image"""
         # ogre_mat_file = relative_path[:-5] + 'ogre.material'
@@ -163,14 +165,14 @@ class OgreMaterialManager:
             for slot in ob.material_slots:
                 mat = slot.material
 
-                if mat.active_texture == None:
+                if mat.active_texture is None:
                     continue
 
                 image_path = mat.active_texture.image.filepath  # = 'asdfsadf' manipulate the file path
 
                 # image_names_list = self.get_ogre_mat_name( image_path )
                 image_names_list = [itm for itm in self.get_ogre_mat_name(image_path) if itm[-12:] != 'shadowcaster']
-                if image_names_list != []:
+                if image_names_list:
                     if len(image_names_list) > 1:
                         self.write_to_text_datablock(image_names_list)
                     else:
@@ -183,7 +185,7 @@ class OgreMaterialManager:
                 mat.active_texture.name = image_name
                 mat.active_texture.image.name = image_name
 
-                if self.DEBUG == True:
+                if self.DEBUG:
                     print(image_path)
                     print(image_type)
                     print(asset_name)
@@ -191,9 +193,7 @@ class OgreMaterialManager:
                     print(image_names_list)
 
 
-from xml.sax.saxutils import quoteattr
-
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 class SimpleSaxWriter():
     def __init__(self, output, root_tag, root_attrs):
         self.output = output
@@ -235,7 +235,7 @@ class SimpleSaxWriter():
         self.end_tag(self.root_tag)
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 class RElement(object):
     def appendChild(self, child):
         self.childNodes.append(child)
@@ -269,7 +269,7 @@ class RElement(object):
             lines.append(('  ' * indent) + '</%s>' % self.tagName)
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 class RDocument(object):
     def __init__(self):
         self.documentElement = None
@@ -294,11 +294,7 @@ class RDocument(object):
         return '\n'.join(lines)
 
 
-import os, time, sys, logging
-import mathutils
-
-
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 class ReportSingleton(object):
     def __init__(self):
         self.reset()
@@ -391,7 +387,7 @@ def timer_diff_str(start):
     return "%0.2f" % (time.time() - start)
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 def dot_mesh(target_file, skeleton_path):
     """
     export the vertices of an object into a .mesh file
@@ -427,7 +423,7 @@ def dot_mesh(target_file, skeleton_path):
     try:
         with open(target_file, 'w') as f:
             f.flush()
-    except Exception as e:
+    except Exception:
         logging.error("Invalid mesh object name: " + obj_name)
         return
 
@@ -441,13 +437,13 @@ def dot_mesh(target_file, skeleton_path):
 
             Report.meshes.append(obj_name)
 
-            #Copy object so we can alter it
+            # Copy object so we can alter it
             copy = ob.copy()
             rem = []
             for mod in copy.modifiers:  # remove armature and array modifiers before collapse
                 if mod.type in 'ARMATURE ARRAY'.split(): rem.append(mod)
             for mod in rem: copy.modifiers.remove(mod)
-            #Check if there already are triangles, or if we need to apply the TRIANGULATE modifier.
+            # Check if there already are triangles, or if we need to apply the TRIANGULATE modifier.
             needs_triangulate = False
             for poly in copy.data.polygons:
                 if poly.loop_total > 4:
@@ -455,7 +451,7 @@ def dot_mesh(target_file, skeleton_path):
                     break
 
             if needs_triangulate:
-                #Check if there's already a triangulation modifier, otherwise add one
+                # Check if there's already a triangulation modifier, otherwise add one
                 for mod in copy.modifiers:
                     if mod.type == 'TRIANGULATE':
                         needs_triangulate = False
@@ -521,10 +517,11 @@ def dot_mesh(target_file, skeleton_path):
             # saves tuples of material name and material obj (or None)
             materials = []
             for mat in ob.data.materials:
-                #Default to the name of the material unless we can find a D.png texture
+                # Default to the name of the material unless we can find a D.png texture
                 mat_name = mat.name
                 if mat:
-                    #Look for a texture named "D.png", which indicates a diffuse texture, and generate the material name based on that
+                    # Look for a texture named "D.png", which indicates a diffuse texture, and generate the material
+                    # name based on that
                     for texture_slot in mat.texture_slots:
                         if texture_slot and texture_slot.texture:
                             if type(texture_slot.texture) is bpy.types.ImageTexture and texture_slot.texture.image:
@@ -532,7 +529,8 @@ def dot_mesh(target_file, skeleton_path):
                                 if (filepath.endswith('D.png')):
                                     _, filepath = filepath.split('//', 1)
                                     if (filepath[0] is not "/"):
-                                        filepath = os.path.abspath(os.path.dirname(bpy.data.filepath) + os.sep + filepath)
+                                        filepath = os.path.abspath(
+                                            os.path.dirname(bpy.data.filepath) + os.sep + filepath)
                                     path_tokens = filepath.split(os.sep)
                                     intersect = len(path_tokens) - 1 - path_tokens[::-1].index('assets')
                                     if intersect != -1:
@@ -559,7 +557,6 @@ def dot_mesh(target_file, skeleton_path):
                     uvcache.append(uvs)  # layer contains: name, active, data
                     for uvface in layer.data:
                         uvs.append((uvface.uv1, uvface.uv2, uvface.uv3, uvface.uv4))
-
 
             for F in mesh.tessfaces:
                 smooth = F.use_smooth
@@ -593,10 +590,10 @@ def dot_mesh(target_file, skeleton_path):
                         v = mesh.vertices[vtri[vidx]]
                         l = mesh.loops[ltri[vidx]]
 
-                        #transform the vertex according to the rotation and scale set on the object
+                        # transform the vertex according to the rotation and scale set on the object
                         transformed_vertex = mathutils.Vector(x * y for x, y in zip(v.co, ob.scale))
                         transformed_vertex.rotate(ob.rotation_euler)
-                        #if multiple meshes are selected, we need to make the location relative to the active object
+                        # if multiple meshes are selected, we need to make the location relative to the active object
                         if multimeshes:
                             transformed_vertex += (ob.location - bpy.context.active_object.location)
 
@@ -681,13 +678,13 @@ def dot_mesh(target_file, skeleton_path):
                             'x': '%6f' % tx,
                             'y': '%6f' % ty,
                             'z': '%6f' % tz
-                            })
+                        })
 
                         doc.leaf_tag('binormal', {
                             'x': '%6f' % btx,
                             'y': '%6f' % bty,
                             'z': '%6f' % btz
-                            })
+                        })
 
                         doc.end_tag('vertex')
 
@@ -717,7 +714,7 @@ def dot_mesh(target_file, skeleton_path):
                 if not len(material_faces[matidx]):
                     Report.warnings.append(
                         'BAD SUBMESH "%s": material %r, has not been applied to any faces - not exporting as submesh.' % (
-                        obj_name, mat_name))
+                            obj_name, mat_name))
                     continue  # fixes corrupt unused materials
 
                 submesh_attributes = {
@@ -795,11 +792,10 @@ def dot_mesh(target_file, skeleton_path):
         if logging:
             print('        Done at', timer_diff_str(start), "seconds")
 
-
         if arm:
-            #If there's an armature there can only be a single object.
+            # If there's an armature there can only be a single object.
             copy = submeshes[0]['copy']
-            #Use the original unbaked mesh
+            # Use the original unbaked mesh
             mesh = submeshes[0]['ob'].data
             doc.leaf_tag('skeletonlink', {
                 'name': skeleton_path
@@ -840,7 +836,7 @@ def dot_mesh(target_file, skeleton_path):
             if badverts:
                 Report.warnings.append(
                     '%s has %s vertices weighted to too many bones (Ogre limits a vertex to 4 bones)\n[try increaseing the Trim-Weights threshold option]' % (
-                    mesh.name, badverts))
+                        mesh.name, badverts))
             doc.end_tag('boneassignments')
 
             # Updated June3 2011 - shape animation works
@@ -957,7 +953,8 @@ def dot_mesh(target_file, skeleton_path):
 
     Report.report()
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+
+# Based on code from https://github.com/OGRECave/blender2ogre
 def append_triangle_in_vertex_group(mesh, obj, vertex_groups, ogre_indices, blender_indices):
     vertices = [mesh.vertices[i] for i in blender_indices]
     names = set()
@@ -966,7 +963,7 @@ def append_triangle_in_vertex_group(mesh, obj, vertex_groups, ogre_indices, blen
             if g.group >= len(obj.vertex_groups):
                 return
             group = obj.vertex_groups[g.group]
-            #Support for Ogre specific vertex animation
+            # Support for Ogre specific vertex animation
             if not group.name.startswith("ogre.vertex.group."):
                 return
             names.add(group.name)
@@ -980,7 +977,7 @@ def append_triangle_in_vertex_group(mesh, obj, vertex_groups, ogre_indices, blen
         vertex_groups[name].append(ogre_indices)
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 class VertexNoPos(object):
     def __init__(self, ogre_vidx, nx, ny, nz, r, g, b, ra, vert_uvs):
         self.ogre_vidx = ogre_vidx
@@ -996,25 +993,34 @@ class VertexNoPos(object):
     """does not compare ogre_vidx (and position at the moment) [ no need to compare position ]"""
 
     def __eq__(self, o):
-        if not math.isclose(self.nx, o.nx): return False
-        if not math.isclose(self.ny, o.ny): return False
-        if not math.isclose(self.nz, o.nz): return False
-        if not math.isclose(self.r, o.r): return False
-        if not math.isclose(self.g, o.g): return False
-        if not math.isclose(self.b, o.b): return False
-        if not math.isclose(self.ra, o.ra): return False
-        if len(self.vert_uvs) != len(o.vert_uvs): return False
+        if not math.isclose(self.nx, o.nx):
+            return False
+        if not math.isclose(self.ny, o.ny):
+            return False
+        if not math.isclose(self.nz, o.nz):
+            return False
+        if not math.isclose(self.r, o.r):
+            return False
+        if not math.isclose(self.g, o.g):
+            return False
+        if not math.isclose(self.b, o.b):
+            return False
+        if not math.isclose(self.ra, o.ra):
+            return False
+        if len(self.vert_uvs) != len(o.vert_uvs):
+            return False
         if self.vert_uvs:
             for i, uv1 in enumerate(self.vert_uvs):
                 uv2 = o.vert_uvs[i]
-                if uv1 != uv2: return False
+                if uv1 != uv2:
+                    return False
         return True
 
     def __repr__(self):
         return 'vertex(%d)' % self.ogre_vidx
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 def extract_vertex_color(vcolors, vcolors_alpha, face, index):
     r = 1.0
     g = 1.0
@@ -1032,9 +1038,8 @@ def extract_vertex_color(vcolors, vcolors_alpha, face, index):
     return export, (r, g, b, ra)
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 def dot_skeleton(target_file, ob):
-
     Report.reset()
     skel = Skeleton(ob)
     name = ob.data.name
@@ -1047,11 +1052,11 @@ def dot_skeleton(target_file, ob):
     return name + '.skeleton'
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 class Bone(object):
 
     def __init__(self, rbone, pbone, skeleton):
-        #flip xz-y
+        # flip xz-y
         self.flipMat = mathutils.Matrix(
             ((1, 0, 0, 0), (0, 0, 1, 0), (0, -1, 0, 0), (0, 0, 0, 1)))  # thanks to Waruck
 
@@ -1061,11 +1066,11 @@ class Bone(object):
         self.name = pbone.name
         self.matrix = rbone.matrix_local.copy()  # armature space
 
-
         self.bone = pbone  # safe to hold pointer to pose bone, not edit bone!
         self.shouldOutput = True
 
-        # todo: Test -> #if pbone.bone.use_inherit_scale: print('warning: bone <%s> is using inherit scaling, Ogre has no support for this' %self.name)
+        # todo: Test -> #if pbone.bone.use_inherit_scale: print('warning: bone <%s> is using inherit scaling,
+        # Ogre has no support for this' %self.name)
         self.parent = pbone.parent
         self.children = []
 
@@ -1150,7 +1155,7 @@ class Bone(object):
             child.compute_rest()
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 class Keyframe:
     def __init__(self, time, pos, rot, scale):
         self.time = time
@@ -1169,11 +1174,11 @@ class Keyframe:
         return False
 
     def isScaleIdentity(self):
-        scaleDiff = mathutils.Vector((1, 1, 1)) - self.scale
-        return scaleDiff.length < 0.0001
+        scale_diff = mathutils.Vector((1, 1, 1)) - self.scale
+        return scale_diff.length < 0.0001
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 # Bone_Track
 # Encapsulates all of the key information for an individual bone within a single animation,
 # and stores that information as XML.
@@ -1248,7 +1253,7 @@ class Bone_Track:
                 scale = doc.createElement('scale')
                 keyframe.appendChild(scale)
                 x, y, z = kf.scale
-                #Should this also be scaled by the object's scale, just as the translate?
+                # Should this also be scaled by the object's scale, just as the translate?
                 scale.setAttribute('x', '%6f' % x)
                 scale.setAttribute('y', '%6f' % y)
                 scale.setAttribute('z', '%6f' % z)
@@ -1257,7 +1262,7 @@ class Bone_Track:
 
 
 # Skeleton
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 def findArmature(ob):
     arm = ob
     # if this armature has no animation,
@@ -1270,7 +1275,7 @@ def findArmature(ob):
     return arm
 
 
-#Based on code from https://github.com/OGRECave/blender2ogre
+# Based on code from https://github.com/OGRECave/blender2ogre
 class Skeleton(object):
     def get_bone(self, name):
         for b in self.bones:
@@ -1388,7 +1393,7 @@ class Skeleton(object):
             y *= self.object.scale.y
             z *= self.object.scale.z
 
-            #Only translate root bones
+            # Only translate root bones
             if not bone.parent:
                 swapped_loc = swap(self.object.location)
                 x += swapped_loc.x
@@ -1484,7 +1489,7 @@ class Exporter:
 
         intersect = -1
         if 'source' in tokens:
-            #Get the last "source" entry, by reversing the list ('::-1')
+            # Get the last "source" entry, by reversing the list ('::-1')
             intersect = len(tokens) - 1 - tokens[::-1].index('source')
         if intersect == -1:
             self.operator.report({'WARNING'}, "The Blender file isn't placed below a 'source' directory, "
@@ -1514,7 +1519,7 @@ class Exporter:
     def __exit__(self, type, value, traceback):
         # Clean up the temporary directory
         if self.temp_directory:
-            #print(self.temp_directory)
+            # print(self.temp_directory)
             shutil.rmtree(self.temp_directory)
 
     def _locate_ogre_tools(self):
@@ -1543,7 +1548,7 @@ class Exporter:
                 self.converter_path = os.path.join(tkn[0:_id], 'resources', 'asset_manager', 'bin', 'nt',
                                                    'OgreCommandLineTools_1.10.11', 'OgreXMLConverter.exe')
                 self.upgrader_path = os.path.join(tkn[0:_id], 'resources', 'asset_manager', 'bin', 'nt',
-                                                   'OgreCommandLineTools_1.10.11', 'OgreMeshUpgrader.exe')
+                                                  'OgreCommandLineTools_1.10.11', 'OgreMeshUpgrader.exe')
 
     def _convert_xml_to_mesh(self, ogre_xml_path, final_asset_name):
 
@@ -1564,9 +1569,7 @@ class Exporter:
         else:
             self.operator.report({'ERROR'}, "Error when writing mesh file " + dest_mesh_path)
 
-
         return dest_mesh_path
-
 
     def export_to_skeleton_xml(self):
         skeleton_xml_path = os.path.join(self.temp_directory, self.asset_name + ".skeleton.xml")
@@ -1591,12 +1594,10 @@ class Exporter:
                 armature_file_name = armature.data.name + ".skeleton"
                 skeleton_path = "./" + armature_file_name
 
-
         ogre_xml_path = os.path.join(self.temp_directory, self.asset_name + ".mesh.xml")
 
         logging.debug("Writing to file " + ogre_xml_path)
         dot_mesh(ogre_xml_path, skeleton_path)
-
 
         return ogre_xml_path
 
@@ -1663,7 +1664,6 @@ class Exporter:
                 traceback.print_exc()
             return
 
-
         mesh_path = self._convert_xml_to_mesh(xml_path, mesh_name + ".mesh")
 
         if self.upgrader_path:
@@ -1684,7 +1684,6 @@ class Exporter:
                 #     subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
                 #     self.operator.report({'INFO'}, "Optimised skeleton file")
 
-
     def export_to_skeleton(self):
         """Exports the asset to a .skeleton file"""
 
@@ -1704,6 +1703,7 @@ class Exporter:
             if self.context.scene.EX_wf_export_optimize:
                 subprocess.call([self.meshmagick_path, 'optimise', skeleton_path])
                 self.operator.report({'INFO'}, "Optimised skeleton file")
+
 
 # ----------------------------------------------------------------------------
 # -------------------------- COMMAND EXEC ------------------------------------
@@ -1966,9 +1966,9 @@ class PANEL_OT_wf_mat_panel(bpy.types.Panel):
         row.operator('scene.wf_open_ogre_materials', text='Show Material', icon='IMASEL')
         # col = layout.column(align=True)
 
-        #row = layout.row(align=True)
-        #row.operator('view3d.material_to_texface', text='Mat to Tex', icon='MATERIAL_DATA')
-        #row.operator('view3d.texface_to_material', text='Tex to Mat', icon='FACESEL_HLT')
+        # row = layout.row(align=True)
+        # row.operator('view3d.material_to_texface', text='Mat to Tex', icon='MATERIAL_DATA')
+        # row.operator('view3d.texface_to_material', text='Tex to Mat', icon='FACESEL_HLT')
 
 
 class PANEL_OT_wf_rigging_panel(bpy.types.Panel):
@@ -2014,7 +2014,9 @@ class PANEL_OT_wf_ogre_export(bpy.types.Panel):
         row = layout.row()
         row.operator("mesh.wf_export_ogre_animated", icon='BONE_DATA')
 
+
 wf_active_object = None
+
 
 @bpy.app.handlers.persistent
 def wf_mesh_name_handler(_):
@@ -2024,6 +2026,7 @@ def wf_mesh_name_handler(_):
         wf_active_object = bpy.context.active_object
         if wf_active_object:
             bpy.context.scene.wf_mesh_name = wf_active_object.name
+
 
 # ----------------------------------------------------------------------------
 # --------------------------- REGISTRATION -----------------------------------
@@ -2093,6 +2096,7 @@ def unregister():
     bpy.utils.unregister_class(PANEL_OT_wf_tools)
 
     bpy.app.handlers.scene_update_post.remove(wf_mesh_name_handler)
+
 
 if __name__ == '__main__':
     register()
