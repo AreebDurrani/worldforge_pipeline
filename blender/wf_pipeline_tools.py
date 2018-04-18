@@ -81,19 +81,6 @@ class OgreMaterialManager:
     def __init__(self):
         self.DEBUG = False
 
-    def get_base_name(self, path):
-        bad_names_l = ['//..']
-        tkns = path.split(os.sep)[1:-1]
-        seps = []
-        for i in range(len(tkns)):
-            itm = tkns[i]
-            if not itm in bad_names_l:
-                seps.append(itm)
-        if not seps:
-            return 'blender file name'
-        # bpy.path.display_name_from_filepath(bpy.data.filepath)
-        return seps[-1]
-
     def open_ogre_materials(self, context, operator):
         """opens ogre.material based on the texture file path"""
 
@@ -129,68 +116,42 @@ class OgreMaterialManager:
                             return
             operator.report({'ERROR'}, "Could not deduce ogre material from textures.")
 
-    def get_ogre_mat_name(self, relative_path):
-        """retrieves ogre.material based on the current image"""
-        # ogre_mat_file = relative_path[:-5] + 'ogre.material'
-        ogre_mat_file = bpy.path.abspath(relative_path)[:-5] + 'ogre.material'
-        # ogre_mat_file = testPath[:-5] + 'ogre.material'
-        matNames = []
-        if os.path.isfile(ogre_mat_file):
-            f = open(ogre_mat_file, 'r')
-            for line in f:
-                if line[:8] == 'material':
-                    matNames.append(line.split(' ')[1])
-            f.close()
-
-        return matNames
-
-    def write_to_text_datablock(self, b_list):
-        """writes out the list to a ogre mat textblock"""
-        ogre_tdb = self.get_text_datablock()
-        ogre_tdb.write('--------------\n')
-        for itm in b_list:
-            ogre_tdb.write('%s \n' % itm)
-
-    def get_text_datablock(self, tdb='ogre_mats'):
-        """gets/creates a text data block (tdb)"""
-        txt_datablock = bpy.data.texts.find(tdb)
-        if txt_datablock == -1:
-            return bpy.data.texts.new(tdb)
-        return bpy.data.texts[tdb]
-
-    def wf_fix_materials(self, context):
+    def wf_fix_materials(self, operator: bpy.types.Operator):
         """tries to fix material names based on ogre.material files"""
         sel = bpy.context.selected_objects
         for ob in sel:
             for slot in ob.material_slots:
                 mat = slot.material
 
-                if mat.active_texture is None:
+                (mat_name, directory) = resolve_material_name(mat)
+
+                if not mat_name:
                     continue
 
-                image_path = mat.active_texture.image.filepath  # = 'asdfsadf' manipulate the file path
+                # Check if there's an ogre.material file, and if not generate one
+                ogre_material_path = directory + os.sep + "ogre.material"
 
-                # image_names_list = self.get_ogre_mat_name( image_path )
-                image_names_list = [itm for itm in self.get_ogre_mat_name(image_path) if itm[-12:] != 'shadowcaster']
-                if image_names_list:
-                    if len(image_names_list) > 1:
-                        self.write_to_text_datablock(image_names_list)
+                if not os.path.isfile(ogre_material_path):
+
+                    tokens = os.path.abspath(directory)
+                    if 'assets' in tokens:
+                        _id = tokens.index('assets')
+                        material_lib_path = os.path.join(tokens[0:_id], 'resources', 'asset_tools', 'material.py')
+                        if os.path.isfile(material_lib_path):
+                            import importlib.util
+                            spec = importlib.util.spec_from_file_location("material", material_lib_path)
+                            material = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(material)
+                            generator = material.MaterialGenerator()
+                            generator.process(directory, generator.Mode.CREATE_MISSING)
+                            operator.report({'INFO'}, "Generated missing material for '" + mat_name + "' in directory '"
+                                            + directory + "'")
+                        else:
+                            operator.report({'WARNING'}, "Could not find material library at " + material_lib_path +
+                                            ", generation of OGRE materials will not work.")
                     else:
-                        mat.name = image_names_list[0]
-
-                image_type = (bpy.path.display_name(image_path)).lower()
-                asset_name = self.get_base_name(image_path)
-                image_name = '_'.join([asset_name, image_type])
-
-                mat.active_texture.name = image_name
-                mat.active_texture.image.name = image_name
-
-                if self.DEBUG:
-                    print(image_path)
-                    print(image_type)
-                    print(asset_name)
-                    print(image_name)
-                    print(image_names_list)
+                        operator.report({'WARNING'}, "Could not find 'asset' directory, make sure you've placed the "
+                                                     "texture you're using under the Worldforge media repository.")
 
 
 # Based on code from https://github.com/OGRECave/blender2ogre
@@ -518,25 +479,8 @@ def dot_mesh(target_file, skeleton_path):
             materials = []
             for mat in ob.data.materials:
                 # Default to the name of the material unless we can find a D.png texture
-                mat_name = mat.name
-                if mat:
-                    # Look for a texture named "D.png", which indicates a diffuse texture, and generate the material
-                    # name based on that
-                    for texture_slot in mat.texture_slots:
-                        if texture_slot and texture_slot.texture:
-                            if type(texture_slot.texture) is bpy.types.ImageTexture and texture_slot.texture.image:
-                                filepath = texture_slot.texture.image.filepath
-                                if (filepath.endswith('D.png')):
-                                    _, filepath = filepath.split('//', 1)
-                                    if (filepath[0] is not "/"):
-                                        filepath = os.path.abspath(
-                                            os.path.dirname(bpy.data.filepath) + os.sep + filepath)
-                                    path_tokens = filepath.split(os.sep)
-                                    intersect = len(path_tokens) - 1 - path_tokens[::-1].index('assets')
-                                    if intersect != -1:
-                                        mat_name = "/" + "/".join(path_tokens[intersect + 1:-1])
-                                        break
-
+                (mat_name, directory) = resolve_material_name(mat)
+                if mat_name:
                     materials.append((mat_name, False, mat))
                 else:
                     print('[WARNING:] Bad material data in', ob)
@@ -1618,7 +1562,8 @@ class Exporter:
             f.close()
 
     def find_file_recursively(self, relative_path_tokens, file_name):
-        """Searches for a file recursively upwards, starting from a directory and walking upwards in the hierarchy until the "assets" directory is reached."""
+        """Searches for a file recursively upwards, starting from a directory and walking upwards in the hierarchy until
+         the "assets" directory is reached."""
         path = os.path.join(self.assets_root, (os.sep).join(relative_path_tokens))
 
         for root, _, filenames in os.walk(path):
@@ -1705,6 +1650,32 @@ class Exporter:
                 self.operator.report({'INFO'}, "Optimised skeleton file")
 
 
+def resolve_material_name(mat: bpy.types.Material):
+    """Tries to find a "D.png" texture file and from that deduce the material name.
+
+    :returns: A tuple of the material name, and the directory where it should be, or a tuple of two None
+    """
+    if mat:
+        # Look for a texture named "D.png", which indicates a diffuse texture, and generate the material
+        # name based on that
+        for texture_slot in mat.texture_slots:
+            if texture_slot and texture_slot.texture:
+                if type(texture_slot.texture) is bpy.types.ImageTexture and texture_slot.texture.image:
+                    filepath = texture_slot.texture.image.filepath
+                    if filepath.endswith('D.png'):
+                        _, filepath = filepath.split('//', 1)
+                        if filepath[0] is not "/":
+                            filepath = os.path.abspath(
+                                os.path.dirname(bpy.data.filepath) + os.sep + filepath)
+                        path_tokens = filepath.split(os.sep)
+                        intersect = len(path_tokens) - 1 - path_tokens[::-1].index('assets')
+                        if intersect != -1:
+                            mat_name = "/" + "/".join(path_tokens[intersect + 1:-1])
+                            return mat_name, os.path.dirname(filepath)
+
+    return None, None
+
+
 # ----------------------------------------------------------------------------
 # -------------------------- COMMAND EXEC ------------------------------------
 # ----------------------------------------------------------------------------
@@ -1713,7 +1684,6 @@ class OBJECT_OT_wfoe_animated(Operator, AddObjectHelper):
     bl_idname = 'mesh.wf_export_ogre_animated'
     bl_label = 'Export Skeleton'
     bl_category = 'WorldForge'
-    bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
@@ -1730,7 +1700,6 @@ class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
     bl_idname = 'mesh.wf_export_ogre_static'
     bl_label = 'Export Mesh'
     bl_category = 'WorldForge'
-    bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
@@ -1743,11 +1712,10 @@ class OBJECT_OT_wfoe_static(Operator, AddObjectHelper):
 
 
 class OBJECT_OT_wf_fix_materials(Operator, AddObjectHelper):
-    """Gets meshes ready for woldforge export"""
+    """Generates OGRE required material files for textures"""
     bl_idname = 'mesh.wf_fix_materials'
-    bl_label = 'WF Mat Fixer'
+    bl_label = 'WF Material Generator'
     bl_category = 'WorldForge'
-    bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
@@ -1756,16 +1724,15 @@ class OBJECT_OT_wf_fix_materials(Operator, AddObjectHelper):
 
     def execute(self, context):
         OMM = OgreMaterialManager()
-        OMM.wf_fix_materials(context)
+        OMM.wf_fix_materials(self)
         return {'FINISHED'}
 
 
 class OBJECT_OT_wf_open_ogre_materials(Operator, AddObjectHelper):
-    """open ogre materials based on the texture filename """
+    """Open ogre materials based on the texture filename. An opened text editor frame is required """
     bl_idname = 'scene.wf_open_ogre_materials'
-    bl_label = 'WF Open Ogre Materials'
+    bl_label = 'WF Open OGRE Materials'
     bl_category = 'WorldForge'
-    bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
@@ -1952,7 +1919,6 @@ class PANEL_OT_wf_mat_panel(bpy.types.Panel):
     bl_region_type = "TOOLS"
     bl_category = "WorldForge"
     bl_label = "Material Utils"
-    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         scene = context.scene
@@ -1961,7 +1927,7 @@ class PANEL_OT_wf_mat_panel(bpy.types.Panel):
         row = layout.row()
         # layout.qlabel(text="Material Utilities")
         row = layout.row(align=True)
-        row.operator('mesh.wf_fix_materials', text='Fix Materials', icon='SCULPTMODE_HLT')
+        row.operator('mesh.wf_fix_materials', text='Generate Materials', icon='SCULPTMODE_HLT')
         row = layout.row(align=True)
         row.operator('scene.wf_open_ogre_materials', text='Show Material', icon='IMASEL')
         # col = layout.column(align=True)
@@ -1976,7 +1942,6 @@ class PANEL_OT_wf_rigging_panel(bpy.types.Panel):
     bl_region_type = "TOOLS"
     bl_category = "WorldForge"
     bl_label = "Rigging Utils"
-    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         scene = context.scene
@@ -1993,7 +1958,6 @@ class PANEL_OT_wf_ogre_export(bpy.types.Panel):
     bl_category = "WorldForge"
     # bl_context = "objectmode"
     bl_label = "Mesh Export"
-    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         layout = self.layout
