@@ -349,7 +349,7 @@ def timer_diff_str(start):
 
 
 # Based on code from https://github.com/OGRECave/blender2ogre
-def dot_mesh(target_file, skeleton_path):
+def export_mesh(target_file, skeleton_path):
     """
     export the vertices of an object into a .mesh file
 
@@ -478,13 +478,17 @@ def dot_mesh(target_file, skeleton_path):
             # saves tuples of material name and material obj (or None)
             materials = []
             for mat in ob.data.materials:
-                # Default to the name of the material unless we can find a D.png texture
-                (mat_name, directory) = resolve_material_name(mat)
-                if mat_name:
-                    materials.append((mat_name, False, mat))
+                #If the material starts with '/' we should use it as it is and not try to deduce it using the texture
+                if mat and mat.name.startswith('/'):
+                    materials.append((mat.name, False, mat))
                 else:
-                    print('[WARNING:] Bad material data in', ob)
-                    materials.append(('_missing_material_', True, None))  # fixed dec22, keep proper index
+                    # Default to the name of the material unless we can find a D.png texture
+                    (mat_name, directory) = resolve_material_name(mat)
+                    if mat_name:
+                        materials.append((mat_name, False, mat))
+                    else:
+                        print('[WARNING:] Bad material data in', ob)
+                        materials.append(('_missing_material_', True, None))  # fixed dec22, keep proper index
             if not materials:
                 materials.append(('_missing_material_', True, None))
             material_faces = []
@@ -983,7 +987,7 @@ def extract_vertex_color(vcolors, vcolors_alpha, face, index):
 
 
 # Based on code from https://github.com/OGRECave/blender2ogre
-def dot_skeleton(target_file, ob):
+def export_skeleton(target_file, ob):
     Report.reset()
     skel = Skeleton(ob)
     name = ob.data.name
@@ -1518,7 +1522,7 @@ class Exporter:
     def export_to_skeleton_xml(self):
         skeleton_xml_path = os.path.join(self.temp_directory, self.asset_name + ".skeleton.xml")
         print("skeleton path: " + skeleton_xml_path)
-        dot_skeleton(skeleton_xml_path, bpy.context.active_object)
+        export_skeleton(skeleton_xml_path, bpy.context.active_object)
         return skeleton_xml_path
 
     def export_to_mesh_xml(self):
@@ -1541,7 +1545,7 @@ class Exporter:
         ogre_xml_path = os.path.join(self.temp_directory, self.asset_name + ".mesh.xml")
 
         logging.debug("Writing to file " + ogre_xml_path)
-        dot_mesh(ogre_xml_path, skeleton_path)
+        export_mesh(ogre_xml_path, skeleton_path)
 
         return ogre_xml_path
 
